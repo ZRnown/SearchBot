@@ -43,20 +43,20 @@ async def handle_start(message: Message):
     await message.answer("请输入关键字到搜索频道，即可获取资源列表。")
 
 
-@router.message(flags={"block": False})
-async def track_messages(message: Message):
-    if not message.from_user:
-        return
-    with db_session() as session:
-        ensure_user_record(session, message.from_user)
-
-
+# 搜索处理器需要更高的优先级，放在 track_messages 之前
 @router.message(F.chat.id == settings.channels.search_channel_id, F.text)
 async def handle_search(message: Message):
     keyword = message.text.strip()
     if not keyword:
         return
-    print(f"[Bot] 收到搜索请求: 频道={message.chat.id}, 关键词={keyword}, 用户={message.from_user.id if message.from_user else 'None'}")
+    print(f"[Bot] ========== 收到搜索请求 ==========")
+    print(f"[Bot] 频道 ID: {message.chat.id}")
+    print(f"[Bot] 配置的搜索频道 ID: {settings.channels.search_channel_id}")
+    print(f"[Bot] ID 匹配: {message.chat.id == settings.channels.search_channel_id}")
+    print(f"[Bot] 关键词: {keyword}")
+    print(f"[Bot] 用户 ID: {message.from_user.id if message.from_user else 'None'}")
+    print(f"[Bot] 消息 ID: {message.message_id}")
+    print(f"[Bot] 聊天类型: {message.chat.type}")
     try:
         await respond_with_results(
             message=message,
@@ -64,11 +64,26 @@ async def handle_search(message: Message):
             category="all",
             page=1,
         )
+        print(f"[Bot] ✅ 搜索请求处理完成: {keyword}")
     except Exception as e:
-        print(f"[Bot] 搜索处理错误: {e}")
+        print(f"[Bot] ❌ 搜索处理错误: {e}")
         import traceback
         traceback.print_exc()
-        await message.reply(f"搜索时发生错误: {str(e)}")
+        try:
+            await message.reply(f"搜索时发生错误: {str(e)}")
+        except Exception as reply_error:
+            print(f"[Bot] ❌ 回复消息失败: {reply_error}")
+            import traceback
+            traceback.print_exc()
+
+
+# 通用消息跟踪处理器（放在搜索处理器之后，避免拦截搜索消息）
+@router.message(flags={"block": False})
+async def track_messages(message: Message):
+    if not message.from_user:
+        return
+    with db_session() as session:
+        ensure_user_record(session, message.from_user)
 
 
 @router.callback_query()
@@ -151,47 +166,82 @@ async def respond_with_results(
     page: int,
     query: CallbackQuery | None = None,
 ):
-    with db_session() as session:
-        actor = query.from_user if query else (message.from_user if message else None)
-        ensure_user_record(session, actor)
-        service = SearchService(session)
-        result = service.run(keyword=keyword, category=category, page=page)
-        buttons = (
-            session.query(SearchButton)
-            .order_by(SearchButton.sort_order.asc(), SearchButton.id.asc())
-            .all()
+    print(f"[Bot] respond_with_results: keyword={keyword}, category={category}, page={page}")
+    try:
+        with db_session() as session:
+            actor = query.from_user if query else (message.from_user if message else None)
+            ensure_user_record(session, actor)
+            service = SearchService(session)
+            result = service.run(keyword=keyword, category=category, page=page)
+            print(f"[Bot] 搜索结果: 找到 {len(result.rows)} 条记录, 总计 {result.total_pages} 页")
+            buttons = (
+                session.query(SearchButton)
+                .order_by(SearchButton.sort_order.asc(), SearchButton.id.asc())
+                .all()
+            )
+
+        display_name = (
+            (query.from_user.first_name if query else None)
+            or (message.from_user.first_name if message else None)
+            or "Unknown"
+        )
+        html = render_search_message(
+            first_name=display_name,
+            keyword=keyword,
+            counts=result.counts,
+            resources=result.rows,
+            page_index=page,
+            total_pages=result.total_pages,
+            reference_time=datetime.utcnow(),
+        )
+        keyboard = build_keyboard(
+            keyword=keyword,
+            active_filter=category,
+            page=page,
+            ads=[(button.label, button.url) for button in buttons],
         )
 
-    display_name = (
-        (query.from_user.first_name if query else None)
-        or (message.from_user.first_name if message else None)
-        or "Unknown"
-    )
-    html = render_search_message(
-        first_name=display_name,
-        keyword=keyword,
-        counts=result.counts,
-        resources=result.rows,
-        page_index=page,
-        total_pages=result.total_pages,
-        reference_time=datetime.utcnow(),
-    )
-    keyboard = build_keyboard(
-        keyword=keyword,
-        active_filter=category,
-        page=page,
-        ads=[(button.label, button.url) for button in buttons],
-    )
-
-    if query:
-        await query.message.edit_text(
-            html,
-            parse_mode="HTML",
-            reply_markup=keyboard,
-        )
-        await query.answer()
-    else:
-        await message.reply(html, parse_mode="HTML", reply_markup=keyboard)
+        if query:
+            await query.message.edit_text(
+                html,
+                parse_mode="HTML",
+                reply_markup=keyboard,
+            )
+            await query.answer()
+        else:
+            print(f"[Bot] 准备回复消息到聊天: {message.chat.id if message else 'None'}")
+            print(f"[Bot] 聊天类型: {message.chat.type if message else 'None'}")
+            try:
+                # 在频道中，尝试使用 reply 或 send_message
+                if message.chat.type in ("channel", "supergroup"):
+                    print(f"[Bot] 检测到频道/超级群组，使用 reply 方法")
+                    await message.reply(html, parse_mode="HTML", reply_markup=keyboard)
+                else:
+                    await message.reply(html, parse_mode="HTML", reply_markup=keyboard)
+                print(f"[Bot] ✅ 消息已成功发送")
+            except Exception as send_error:
+                print(f"[Bot] ❌ 发送消息失败: {send_error}")
+                import traceback
+                traceback.print_exc()
+                # 如果 reply 失败，尝试使用 send_message
+                try:
+                    print(f"[Bot] 尝试使用 send_message 方法")
+                    await bot.send_message(
+                        message.chat.id,
+                        html,
+                        parse_mode="HTML",
+                        reply_markup=keyboard,
+                        reply_to_message_id=message.message_id,
+                    )
+                    print(f"[Bot] ✅ 使用 send_message 成功发送")
+                except Exception as send_msg_error:
+                    print(f"[Bot] ❌ send_message 也失败: {send_msg_error}")
+                    raise
+    except Exception as e:
+        print(f"[Bot] respond_with_results 错误: {e}")
+        import traceback
+        traceback.print_exc()
+        raise
 
 
 async def send_comic_page(
@@ -265,12 +315,22 @@ async def send_comic_page(
 async def main():
     try:
         init_db()
+        
+        # 清除 webhook 并丢弃待处理的更新
+        print(f"[Bot] 清除 webhook...")
+        try:
+            await bot.delete_webhook(drop_pending_updates=True)
+            print(f"[Bot] ✅ Webhook 已清除")
+        except Exception as e:
+            print(f"[Bot] ⚠️  清除 webhook 时出错（可能没有 webhook）: {e}")
+        
         dp = Dispatcher()
         dp.include_router(router)
         print(f"[Bot] 机器人启动中...")
         print(f"[Bot] 搜索频道 ID: {settings.channels.search_channel_id}")
         print(f"[Bot] 机器人 Token: {settings.bot_token[:10]}...")
-        await dp.start_polling(bot)
+        print(f"[Bot] 开始轮询更新...")
+        await dp.start_polling(bot, drop_pending_updates=True)
     except Exception as e:
         print(f"[Bot] 启动失败: {e}")
         import traceback

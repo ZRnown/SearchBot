@@ -21,12 +21,14 @@ export async function POST(request: Request) {
     return NextResponse.json(data, { status: upstream.status })
   }
   const response = NextResponse.json({ username: payload.username })
+  // 判断是否为 HTTPS
+  const isSecure = process.env.NODE_ENV === "production" || process.env.FORCE_SECURE_COOKIE === "true"
   response.cookies.set("admin_token", data.access_token, {
     httpOnly: true,
     sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
+    secure: isSecure,
     path: "/",
-    maxAge: data.expires_in ?? 3600,
+    maxAge: data.expires_in ?? 3600 * 24 * 7, // 默认7天
   })
   return response
 }

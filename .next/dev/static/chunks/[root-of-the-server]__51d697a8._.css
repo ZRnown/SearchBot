@@ -170,10 +170,6 @@
     --container-sm: 24rem;
     --container-md: 28rem;
     --container-lg: 32rem;
-    --container-2xl: 42rem;
-    --container-5xl: 64rem;
-    --container-6xl: 72rem;
-    --container-7xl: 80rem;
     --text-xs: .75rem;
     --text-xs--line-height: calc(1 / .75);
     --text-sm: .875rem;
@@ -182,8 +178,6 @@
     --text-base--line-height: calc(1.5 / 1);
     --text-lg: 1.125rem;
     --text-lg--line-height: calc(1.75 / 1.125);
-    --text-xl: 1.25rem;
-    --text-xl--line-height: calc(1.75 / 1.25);
     --text-2xl: 1.5rem;
     --text-2xl--line-height: calc(2 / 1.5);
     --font-weight-normal: 400;
@@ -698,10 +692,6 @@
     margin: calc(var(--spacing) * 0) !important;
   }
 
-  .m-0 {
-    margin: calc(var(--spacing) * 0);
-  }
-
   .-mx-1 {
     margin-inline: calc(var(--spacing) * -1);
   }
@@ -784,10 +774,6 @@
 
   .mb-3 {
     margin-bottom: calc(var(--spacing) * 3);
-  }
-
-  .mb-4 {
-    margin-bottom: calc(var(--spacing) * 4);
   }
 
   .-ml-4 {
@@ -1005,20 +991,8 @@
     height: calc(var(--spacing) * 16);
   }
 
-  .h-32 {
-    height: calc(var(--spacing) * 32);
-  }
-
   .h-\[1\.15rem\] {
     height: 1.15rem;
-  }
-
-  .h-\[98vh\] {
-    height: 98vh;
-  }
-
-  .h-\[99vh\] {
-    height: 99vh;
   }
 
   .h-\[calc\(100\%-1px\)\] {
@@ -1079,26 +1053,6 @@
 
   .max-h-96 {
     max-height: calc(var(--spacing) * 96);
-  }
-
-  .max-h-\[80vh\] {
-    max-height: 80vh;
-  }
-
-  .max-h-\[90vh\] {
-    max-height: 90vh;
-  }
-
-  .max-h-\[95vh\] {
-    max-height: 95vh;
-  }
-
-  .max-h-\[98vh\] {
-    max-height: 98vh;
-  }
-
-  .max-h-\[99vh\] {
-    max-height: 99vh;
   }
 
   .max-h-\[300px\] {
@@ -1221,14 +1175,6 @@
     width: calc(var(--spacing) * 72);
   }
 
-  .w-\[98vw\] {
-    width: 98vw;
-  }
-
-  .w-\[99vw\] {
-    width: 99vw;
-  }
-
   .w-\[100px\] {
     width: 100px;
   }
@@ -1261,36 +1207,8 @@
     max-width: var(--skeleton-width);
   }
 
-  .max-w-2xl {
-    max-width: var(--container-2xl);
-  }
-
-  .max-w-5xl {
-    max-width: var(--container-5xl);
-  }
-
-  .max-w-6xl {
-    max-width: var(--container-6xl);
-  }
-
-  .max-w-7xl {
-    max-width: var(--container-7xl);
-  }
-
   .max-w-\[90rem\] {
     max-width: 90rem;
-  }
-
-  .max-w-\[95vw\] {
-    max-width: 95vw;
-  }
-
-  .max-w-\[98vw\] {
-    max-width: 98vw;
-  }
-
-  .max-w-\[99vw\] {
-    max-width: 99vw;
   }
 
   .max-w-\[calc\(100\%-2rem\)\] {
@@ -1520,14 +1438,6 @@
     grid-auto-rows: min-content;
   }
 
-  .grid-cols-1 {
-    grid-template-columns: repeat(1, minmax(0, 1fr));
-  }
-
-  .grid-cols-2 {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
   .grid-cols-3 {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
@@ -1630,10 +1540,6 @@
 
   .gap-7 {
     gap: calc(var(--spacing) * 7);
-  }
-
-  .gap-8 {
-    gap: calc(var(--spacing) * 8);
   }
 
   :where(.space-y-0\.5 > :not(:last-child)) {
@@ -2251,10 +2157,6 @@
     padding-right: calc(var(--spacing) * 8);
   }
 
-  .pb-2 {
-    padding-bottom: calc(var(--spacing) * 2);
-  }
-
   .pb-3 {
     padding-bottom: calc(var(--spacing) * 3);
   }
@@ -2330,11 +2232,6 @@
   .text-sm\/relaxed {
     font-size: var(--text-sm);
     line-height: var(--leading-relaxed);
-  }
-
-  .text-xl {
-    font-size: var(--text-xl);
-    line-height: var(--tw-leading, var(--text-xl--line-height));
   }
 
   .text-xs {
@@ -2579,11 +2476,6 @@
 
   .ring-0 {
     --tw-ring-shadow: var(--tw-ring-inset, ) 0 0 0 calc(0px + var(--tw-ring-offset-width)) var(--tw-ring-color, currentcolor);
-    box-shadow: var(--tw-inset-shadow), var(--tw-inset-ring-shadow), var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow);
-  }
-
-  .ring-2 {
-    --tw-ring-shadow: var(--tw-ring-inset, ) 0 0 0 calc(2px + var(--tw-ring-offset-width)) var(--tw-ring-color, currentcolor);
     box-shadow: var(--tw-inset-shadow), var(--tw-inset-ring-shadow), var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow);
   }
 
@@ -4539,12 +4431,6 @@
   }
 
   @media (min-width: 40rem) {
-    .sm\:grid-cols-2 {
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
-  }
-
-  @media (min-width: 40rem) {
     .sm\:grid-cols-3 {
       grid-template-columns: repeat(3, minmax(0, 1fr));
     }
@@ -4559,12 +4445,6 @@
   @media (min-width: 40rem) {
     .sm\:grid-cols-5 {
       grid-template-columns: repeat(5, minmax(0, 1fr));
-    }
-  }
-
-  @media (min-width: 40rem) {
-    .sm\:grid-cols-6 {
-      grid-template-columns: repeat(6, minmax(0, 1fr));
     }
   }
 
@@ -4677,18 +4557,6 @@
   }
 
   @media (min-width: 48rem) {
-    .md\:grid-cols-3 {
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-    }
-  }
-
-  @media (min-width: 48rem) {
-    .md\:grid-cols-4 {
-      grid-template-columns: repeat(4, minmax(0, 1fr));
-    }
-  }
-
-  @media (min-width: 48rem) {
     .md\:grid-cols-5 {
       grid-template-columns: repeat(5, minmax(0, 1fr));
     }
@@ -4697,12 +4565,6 @@
   @media (min-width: 48rem) {
     .md\:grid-cols-6 {
       grid-template-columns: repeat(6, minmax(0, 1fr));
-    }
-  }
-
-  @media (min-width: 48rem) {
-    .md\:grid-cols-8 {
-      grid-template-columns: repeat(8, minmax(0, 1fr));
     }
   }
 
@@ -4782,24 +4644,6 @@
   }
 
   @media (min-width: 64rem) {
-    .lg\:grid-cols-4 {
-      grid-template-columns: repeat(4, minmax(0, 1fr));
-    }
-  }
-
-  @media (min-width: 64rem) {
-    .lg\:grid-cols-5 {
-      grid-template-columns: repeat(5, minmax(0, 1fr));
-    }
-  }
-
-  @media (min-width: 64rem) {
-    .lg\:grid-cols-6 {
-      grid-template-columns: repeat(6, minmax(0, 1fr));
-    }
-  }
-
-  @media (min-width: 64rem) {
     .lg\:grid-cols-8 {
       grid-template-columns: repeat(8, minmax(0, 1fr));
     }
@@ -4812,43 +4656,7 @@
   }
 
   @media (min-width: 80rem) {
-    .xl\:grid-cols-5 {
-      grid-template-columns: repeat(5, minmax(0, 1fr));
-    }
-  }
-
-  @media (min-width: 80rem) {
-    .xl\:grid-cols-6 {
-      grid-template-columns: repeat(6, minmax(0, 1fr));
-    }
-  }
-
-  @media (min-width: 80rem) {
-    .xl\:grid-cols-8 {
-      grid-template-columns: repeat(8, minmax(0, 1fr));
-    }
-  }
-
-  @media (min-width: 80rem) {
     .xl\:grid-cols-10 {
-      grid-template-columns: repeat(10, minmax(0, 1fr));
-    }
-  }
-
-  @media (min-width: 96rem) {
-    .\32 xl\:grid-cols-6 {
-      grid-template-columns: repeat(6, minmax(0, 1fr));
-    }
-  }
-
-  @media (min-width: 96rem) {
-    .\32 xl\:grid-cols-7 {
-      grid-template-columns: repeat(7, minmax(0, 1fr));
-    }
-  }
-
-  @media (min-width: 96rem) {
-    .\32 xl\:grid-cols-10 {
       grid-template-columns: repeat(10, minmax(0, 1fr));
     }
   }

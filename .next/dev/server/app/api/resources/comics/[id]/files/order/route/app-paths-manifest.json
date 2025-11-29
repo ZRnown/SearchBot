@@ -1,0 +1,3 @@
+{
+  "/api/resources/comics/[id]/files/order/route": "app/api/resources/comics/[id]/files/order/route.js"
+}

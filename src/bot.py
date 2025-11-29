@@ -54,12 +54,21 @@ async def track_messages(message: Message):
 @router.message(F.chat.id == settings.channels.search_channel_id, F.text)
 async def handle_search(message: Message):
     keyword = message.text.strip()
-    await respond_with_results(
-        message=message,
-        keyword=keyword,
-        category="all",
-        page=1,
-    )
+    if not keyword:
+        return
+    print(f"[Bot] 收到搜索请求: 频道={message.chat.id}, 关键词={keyword}, 用户={message.from_user.id if message.from_user else 'None'}")
+    try:
+        await respond_with_results(
+            message=message,
+            keyword=keyword,
+            category="all",
+            page=1,
+        )
+    except Exception as e:
+        print(f"[Bot] 搜索处理错误: {e}")
+        import traceback
+        traceback.print_exc()
+        await message.reply(f"搜索时发生错误: {str(e)}")
 
 
 @router.callback_query()
@@ -254,10 +263,19 @@ async def send_comic_page(
 
 
 async def main():
-    init_db()
-    dp = Dispatcher()
-    dp.include_router(router)
-    await dp.start_polling(bot)
+    try:
+        init_db()
+        dp = Dispatcher()
+        dp.include_router(router)
+        print(f"[Bot] 机器人启动中...")
+        print(f"[Bot] 搜索频道 ID: {settings.channels.search_channel_id}")
+        print(f"[Bot] 机器人 Token: {settings.bot_token[:10]}...")
+        await dp.start_polling(bot)
+    except Exception as e:
+        print(f"[Bot] 启动失败: {e}")
+        import traceback
+        traceback.print_exc()
+        raise
 
 
 if __name__ == "__main__":

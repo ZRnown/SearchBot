@@ -21,12 +21,13 @@ export async function POST(request: Request) {
     return NextResponse.json(data, { status: upstream.status })
   }
   const response = NextResponse.json({ username: payload.username })
-  // 判断是否为 HTTPS
-  const isSecure = process.env.NODE_ENV === "production" || process.env.FORCE_SECURE_COOKIE === "true"
+  // 判断是否为 HTTPS（只有在明确设置 FORCE_SECURE_COOKIE=true 时才使用 secure）
+  // 默认在 HTTP 环境下不使用 secure
+  const isSecure = process.env.FORCE_SECURE_COOKIE === "true"
   response.cookies.set("admin_token", data.access_token, {
     httpOnly: true,
     sameSite: "lax",
-    secure: isSecure,
+    secure: isSecure, // HTTP 环境下为 false
     path: "/",
     maxAge: data.expires_in ?? 3600 * 24 * 7, // 默认7天
   })

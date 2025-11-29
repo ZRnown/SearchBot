@@ -8,16 +8,24 @@ export async function GET() {
   if (!token) {
     return NextResponse.json({ message: "Unauthorized" }, { status: 401 })
   }
-  const upstream = await adminFetch("/auth/profile", undefined, token)
-  const text = await upstream.text()
-  if (!text) {
-    return NextResponse.json({ message: "Unauthorized" }, { status: 401 })
-  }
   try {
-    const data = JSON.parse(text)
-    return NextResponse.json(data, { status: upstream.status })
-  } catch {
-    return new NextResponse(text, { status: upstream.status })
+    const upstream = await adminFetch("/auth/profile", undefined, token)
+    const text = await upstream.text()
+    if (!upstream.ok) {
+      return NextResponse.json({ message: "Unauthorized" }, { status: 401 })
+    }
+    if (!text) {
+      return NextResponse.json({ message: "Unauthorized" }, { status: 401 })
+    }
+    try {
+      const data = JSON.parse(text)
+      return NextResponse.json(data, { status: upstream.status })
+    } catch {
+      return new NextResponse(text, { status: upstream.status })
+    }
+  } catch (error) {
+    console.error("Session check error:", error)
+    return NextResponse.json({ message: "Unauthorized" }, { status: 401 })
   }
 }
 

@@ -22,8 +22,10 @@ class ResourceRepository:
         offset: int,
     ) -> Sequence[Resource]:
         query = self.session.query(Resource)
-        like_pattern = f"%{keyword}%"
-        query = query.filter(Resource.title.ilike(like_pattern))
+        # 只有当关键词不为空时才添加关键词过滤
+        if keyword and keyword.strip():
+            like_pattern = f"%{keyword.strip()}%"
+            query = query.filter(Resource.title.ilike(like_pattern))
         if resource_type and resource_type != "all":
             query = query.filter(Resource.type == resource_type)
         return (
@@ -34,13 +36,12 @@ class ResourceRepository:
         )
 
     def count_by_type(self, keyword: str) -> dict[str, int]:
-        like_pattern = f"%{keyword}%"
-        rows: Iterable[tuple[str, int]] = (
-            self.session.query(Resource.type, func.count(Resource.id))
-            .filter(Resource.title.ilike(like_pattern))
-            .group_by(Resource.type)
-            .all()
-        )
+        query = self.session.query(Resource.type, func.count(Resource.id))
+        # 只有当关键词不为空时才添加关键词过滤
+        if keyword and keyword.strip():
+            like_pattern = f"%{keyword.strip()}%"
+            query = query.filter(Resource.title.ilike(like_pattern))
+        rows: Iterable[tuple[str, int]] = query.group_by(Resource.type).all()
         result = {resource_type: count for resource_type, count in rows}
         result["all"] = sum(result.values())
         return result

@@ -64,11 +64,14 @@ async def handle_search(message: Message):
         print(f"[Bot] ⚠️ 收到转发消息，无法直接获取文本内容")
         return
     
-    if not keyword:
-        print(f"[Bot] ⚠️ 消息没有文本内容，跳过处理")
+    if not keyword or not keyword.strip():
+        print(f"[Bot] ⚠️ 消息没有文本内容或关键词为空，跳过处理")
         print(f"[Bot]   消息类型: {message.content_type if hasattr(message, 'content_type') else 'unknown'}")
         print(f"[Bot]   消息 ID: {message.message_id}")
         return
+    
+    # 确保关键词已去除首尾空格
+    keyword = keyword.strip()
     
     print(f"[Bot] ========== 收到搜索请求 ==========")
     print(f"[Bot] 频道 ID: {message.chat.id}")
@@ -131,14 +134,22 @@ async def handle_callback(query: CallbackQuery):
             await query.answer("只有发送搜索请求的用户才能操作此结果", show_alert=True)
             return
         
-        keyword = payload.get("k", "")
+        keyword = payload.get("k", "").strip()
         category = payload.get("f", "all")
         page = max(payload.get("p", 1), 1)
+        
+        # 如果是筛选操作且关键词为空，拒绝操作
+        if action == "filter" and not keyword:
+            print(f"[Bot] ⚠️ 筛选操作被拒绝：关键词为空")
+            await query.answer("请先输入关键词进行搜索，然后再筛选类型", show_alert=True)
+            return
+        
         if action == "page":
             direction = payload.get("dir")
             if direction == "prev" and page < 1:
                 await query.answer("已经是第一页", show_alert=False)
                 return
+        
         await respond_with_results(
             message=query.message,
             keyword=keyword,

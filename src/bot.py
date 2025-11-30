@@ -428,12 +428,21 @@ async def send_comic_page(
                 return
 
         # 分页发送图片，每页显示 page_size 张图片
+        # 如果总图片数 <= 10，只显示 1 页，不分页
         page_size = settings.bot.page_size
-        total_pages = (total_images + page_size - 1) // page_size  # 向上取整
-        
-        # 计算当前页的偏移量
-        offset = (page - 1) * page_size
-        page_files = repo.list_comic_files(resource_id, limit=page_size, offset=offset)
+        if total_images <= 10:
+            # 少于等于 10 张图片，只显示 1 页，不分页
+            total_pages = 1
+            page = 1
+            page_files = repo.list_comic_files(resource_id, limit=total_images, offset=0)
+        else:
+            # 超过 10 张图片，使用分页
+            total_pages = (total_images + page_size - 1) // page_size  # 向上取整
+            # 确保 page 在有效范围内
+            page = max(1, min(page, total_pages))
+            # 计算当前页的偏移量
+            offset = (page - 1) * page_size
+            page_files = repo.list_comic_files(resource_id, limit=page_size, offset=offset)
         
         if not page_files:
             await bot.send_message(chat_id, "该页没有内容。")
@@ -446,19 +455,28 @@ async def send_comic_page(
             media_group = [InputMediaPhoto(media=item.file_id) for item in chunk]
             await bot.send_media_group(chat_id, media_group)
         
-        # 发送分页导航按钮
-        keyboard = build_comic_nav_keyboard(resource_id, page, total_pages)
+        # 发送分页导航按钮（如果只有 1 页，不显示分页按钮）
         link_preview_options = LinkPreviewOptions(is_disabled=True)
-        
-        await bot.send_message(
-            chat_id,
-            f"📖 <b>{resource.title}</b>\n"
-            f"📊 合集图片数：{total_images}\n"
-            f"📄 当前第 {page} 页 / 共 {total_pages} 页",
-            reply_markup=keyboard,
-            parse_mode="HTML",
-            link_preview_options=link_preview_options,
-        )
+        if total_pages > 1:
+            keyboard = build_comic_nav_keyboard(resource_id, page, total_pages)
+            await bot.send_message(
+                chat_id,
+                f"📖 <b>{resource.title}</b>\n"
+                f"📊 合集图片数：{total_images}\n"
+                f"📄 当前第 {page} 页 / 共 {total_pages} 页",
+                reply_markup=keyboard,
+                parse_mode="HTML",
+                link_preview_options=link_preview_options,
+            )
+        else:
+            # 只有 1 页，不显示分页按钮
+            await bot.send_message(
+                chat_id,
+                f"📖 <b>{resource.title}</b>\n"
+                f"📊 合集图片数：{total_images}",
+                parse_mode="HTML",
+                link_preview_options=link_preview_options,
+            )
     if query:
         await query.answer()
 

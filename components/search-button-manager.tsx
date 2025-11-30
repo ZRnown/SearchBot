@@ -200,6 +200,33 @@ export function SearchButtonManager() {
     }
   }
 
+  const handleClearAll = async () => {
+    if (buttons.length === 0) {
+      toast({ title: "没有可清除的按钮", variant: "destructive" })
+      return
+    }
+    
+    if (!confirm(`确定要清除所有 ${buttons.length} 个按钮吗？此操作不可恢复。`)) {
+      return
+    }
+
+    try {
+      // 循环删除所有按钮
+      for (const button of buttons) {
+        await deleteSearchButton(button.id)
+      }
+      setButtons([])
+      setEditMap({})
+      toast({ title: `已清除所有 ${buttons.length} 个按钮` })
+    } catch (error) {
+      toast({
+        title: "清除失败",
+        description: error instanceof Error ? error.message : "请稍后再试",
+        variant: "destructive",
+      })
+    }
+  }
+
   const handleCopy = async (text: string) => {
     try {
       await navigator.clipboard.writeText(text)
@@ -216,10 +243,18 @@ export function SearchButtonManager() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-card-foreground">
-          <Link2 className="h-5 w-5" />
-          搜索结果底部按钮
-        </CardTitle>
+        <div className="flex items-center justify-between">
+          <CardTitle className="flex items-center gap-2 text-card-foreground">
+            <Link2 className="h-5 w-5" />
+            搜索结果底部按钮
+          </CardTitle>
+          {buttons.length > 0 && (
+            <Button variant="destructive" onClick={handleClearAll} disabled={loading}>
+              <Trash2 className="h-4 w-4 mr-2" />
+              清除所有按钮
+            </Button>
+          )}
+        </div>
       </CardHeader>
       <CardContent className="space-y-6">
         <div className="grid gap-4 sm:grid-cols-3">

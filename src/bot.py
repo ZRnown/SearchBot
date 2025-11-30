@@ -173,28 +173,6 @@ async def handle_callback(query: CallbackQuery):
     if action == "noop":
         await query.answer()
         return
-    
-    if action == "clear_buttons":
-        # 检查用户ID是否匹配
-        expected_user_id = payload.get("u")
-        if expected_user_id is None:
-            # 兼容旧版本：如果没有用户ID，允许操作（向后兼容）
-            print(f"[Bot] ⚠️ 清除按钮回调数据中没有用户ID，允许操作（向后兼容）")
-        elif query.from_user and query.from_user.id != expected_user_id:
-            # 用户ID不匹配，拒绝操作
-            print(f"[Bot] ❌ 清除按钮用户ID不匹配: 期望 {expected_user_id}, 实际 {query.from_user.id if query.from_user else 'None'}")
-            await query.answer("只有发送搜索请求的用户才能操作此结果", show_alert=True)
-            return
-        
-        # 清除按钮：编辑消息，移除键盘
-        try:
-            await query.message.edit_reply_markup(reply_markup=None)
-            await query.answer("✅ 按钮已清除", show_alert=False)
-            print(f"[Bot] ✅ 用户 {query.from_user.id if query.from_user else 'Unknown'} 清除了搜索结果按钮")
-        except Exception as e:
-            print(f"[Bot] ❌ 清除按钮失败: {e}")
-            await query.answer("清除按钮失败", show_alert=True)
-        return
 
     await query.answer("未知操作", show_alert=True)
 

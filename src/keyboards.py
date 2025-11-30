@@ -67,10 +67,6 @@ def build_keyboard(*, keyword: str, active_filter: str, page: int, total_pages: 
     
     rows.extend(build_ads_rows(ads))
     
-    # 添加清除按钮行
-    clear_payload = {"a": "clear_buttons", "u": user_id}
-    rows.append([InlineKeyboardButton(text="🗑️ 清除按钮", callback_data=json_dumps(clear_payload))])
-    
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 

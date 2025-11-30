@@ -1,2 +1,14 @@
 INFO:     Will watch for changes in these directories: ['/Users/wanghaixin/Development/telegramBotWork/SearchBot']
-ERROR:    [Errno 48] Address already in use
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     Started reloader process [96138] using StatReload
+INFO:     Started server process [96141]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+WARNING:  StatReload detected changes in 'src/bot.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [96141]
+INFO:     Started server process [96809]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.

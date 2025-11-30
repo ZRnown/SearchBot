@@ -10,7 +10,7 @@ from aiogram.filters import Command
 from aiogram.types import CallbackQuery, InputMediaPhoto, Message, User as TelegramUser
 
 from .config import settings
-from .db import SearchButton, User, db_session, init_db
+from .db import Resource, SearchButton, User, db_session, init_db
 from .keyboards import build_comic_nav_keyboard, build_keyboard
 from .renderers import render_search_message
 from .repositories import ResourceRepository
@@ -44,24 +44,7 @@ async def handle_start(message: Message):
     await message.answer("请输入关键字到搜索频道，即可获取资源列表。")
 
 
-# 调试：记录所有进入搜索频道的消息（在搜索处理器之前，但不拦截）
-@router.message(F.chat.id == settings.channels.search_channel_id, flags={"block": False})
-async def debug_search_channel_messages(message: Message):
-    """调试函数：记录所有进入搜索频道的消息，帮助诊断为什么某些消息没有触发搜索"""
-    print(f"[Bot] [DEBUG] 搜索频道收到消息:")
-    print(f"[Bot] [DEBUG]   消息 ID: {message.message_id}")
-    print(f"[Bot] [DEBUG]   用户 ID: {message.from_user.id if message.from_user else 'None'}")
-    print(f"[Bot] [DEBUG]   消息类型: {message.content_type if hasattr(message, 'content_type') else 'unknown'}")
-    print(f"[Bot] [DEBUG]   有文本: {bool(message.text)}")
-    print(f"[Bot] [DEBUG]   有说明: {bool(message.caption)}")
-    print(f"[Bot] [DEBUG]   文本内容: {message.text[:50] if message.text else 'None'}...")
-    print(f"[Bot] [DEBUG]   说明内容: {message.caption[:50] if message.caption else 'None'}...")
-    print(f"[Bot] [DEBUG]   是转发: {bool(message.forward_from_chat)}")
-    print(f"[Bot] [DEBUG]   是回复: {bool(message.reply_to_message)}")
-
-
-# 搜索处理器需要更高的优先级，放在 track_messages 之前
-# 处理文本消息和可能包含文本的其他消息类型
+# 搜索处理器 - 必须放在最前面，确保优先处理搜索频道的消息
 @router.message(F.chat.id == settings.channels.search_channel_id)
 async def handle_search(message: Message):
     # 获取消息文本（可能是直接文本、转发消息的文本、或回复消息的文本）
@@ -69,6 +52,8 @@ async def handle_search(message: Message):
     print(f"[Bot]   消息 ID: {message.message_id}")
     print(f"[Bot]   聊天 ID: {message.chat.id}")
     print(f"[Bot]   配置的搜索频道 ID: {settings.channels.search_channel_id}")
+    print(f"[Bot]   ID 匹配检查: {message.chat.id} == {settings.channels.search_channel_id} = {message.chat.id == settings.channels.search_channel_id}")
+    
     keyword = None
     if message.text:
         keyword = message.text.strip()

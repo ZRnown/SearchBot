@@ -305,11 +305,38 @@ async def send_comic_page(
     page: int,
     query: CallbackQuery | None = None,
 ):
-    print(f"[Bot] send_comic_page: resource_id={resource_id}, user_id={user.id if user else 'None'}")
+    print(f"[Bot] ========== send_comic_page 开始 ==========")
+    print(f"[Bot] resource_id={resource_id} (类型: {type(resource_id)})")
+    print(f"[Bot] user_id={user.id if user else 'None'}")
+    print(f"[Bot] chat_id={chat_id}")
+    
     with db_session() as session:
         repo = ResourceRepository(session)
+        
+        # 尝试直接查询数据库
+        print(f"[Bot] 尝试查询资源: resource_id={resource_id}")
         resource = repo.get(resource_id)
-        print(f"[Bot] 查询结果: resource={resource}, resource_id={resource.id if resource else 'None'}, type={resource.type if resource else 'None'}")
+        
+        # 如果查询失败，尝试查找所有资源看看是否有匹配的
+        if not resource:
+            print(f"[Bot] ⚠️ 直接查询失败，尝试查找所有资源...")
+            all_resources = session.query(Resource).limit(10).all()
+            print(f"[Bot] 数据库中的资源示例: {[(r.id, r.title, r.type) for r in all_resources]}")
+            
+            # 尝试使用字符串匹配查找
+            try:
+                resource_by_query = session.query(Resource).filter(Resource.id == resource_id).first()
+                print(f"[Bot] 使用 filter 查询结果: {resource_by_query}")
+                resource = resource_by_query
+            except Exception as e:
+                print(f"[Bot] ❌ filter 查询出错: {e}")
+        
+        print(f"[Bot] 最终查询结果:")
+        print(f"[Bot]   - resource: {resource}")
+        print(f"[Bot]   - resource.id: {resource.id if resource else 'None'}")
+        print(f"[Bot]   - resource.type: {resource.type if resource else 'None'}")
+        print(f"[Bot]   - resource.title: {resource.title if resource else 'None'}")
+        
         if not resource:
             print(f"[Bot] ❌ 资源不存在: resource_id={resource_id}")
             if query:
@@ -382,12 +409,23 @@ async def main():
         init_db()
         
         # 清除 webhook 并丢弃待处理的更新
+        print(f"[Bot] ========== 机器人启动 ==========")
         print(f"[Bot] 清除 webhook...")
         try:
+            webhook_info = await bot.get_webhook_info()
+            print(f"[Bot] 当前 webhook 信息: {webhook_info.url if webhook_info.url else '未设置'}")
             await bot.delete_webhook(drop_pending_updates=True)
             print(f"[Bot] ✅ Webhook 已清除")
         except Exception as e:
             print(f"[Bot] ⚠️  清除 webhook 时出错（可能没有 webhook）: {e}")
+        
+        # 检查是否有其他实例在运行
+        try:
+            me = await bot.get_me()
+            print(f"[Bot] 机器人信息: @{me.username} (ID: {me.id})")
+        except Exception as e:
+            print(f"[Bot] ❌ 无法获取机器人信息: {e}")
+            raise
         
         dp = Dispatcher()
         dp.include_router(router)
@@ -395,6 +433,7 @@ async def main():
         print(f"[Bot] 搜索频道 ID: {settings.channels.search_channel_id}")
         print(f"[Bot] 机器人 Token: {settings.bot_token[:10]}...")
         print(f"[Bot] 开始轮询更新...")
+        print(f"[Bot] ==================================")
         await dp.start_polling(bot, drop_pending_updates=True)
     except Exception as e:
         print(f"[Bot] 启动失败: {e}")

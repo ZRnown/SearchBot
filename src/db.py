@@ -22,7 +22,21 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship,
 from .config import settings
 
 
-engine = create_engine(settings.database.url, echo=False, future=True)
+# 配置连接池以解决 MySQL 连接丢失问题
+engine = create_engine(
+    settings.database.url,
+    echo=False,
+    future=True,
+    pool_size=10,  # 连接池大小
+    max_overflow=20,  # 最大溢出连接数
+    pool_pre_ping=True,  # 连接前检查连接是否有效
+    pool_recycle=3600,  # 连接回收时间（秒）
+    connect_args={
+        "connect_timeout": 10,
+        "read_timeout": 30,
+        "write_timeout": 30,
+    }
+)
 SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)
 
 

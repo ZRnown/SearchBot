@@ -7,7 +7,7 @@ import json
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.client.default import DefaultBotProperties
 from aiogram.filters import Command
-from aiogram.types import CallbackQuery, InputMediaPhoto, Message, User as TelegramUser
+from aiogram.types import CallbackQuery, InputMediaPhoto, LinkPreviewOptions, Message, User as TelegramUser
 
 from .config import settings
 from .db import Resource, SearchButton, User, db_session, init_db
@@ -243,11 +243,15 @@ async def respond_with_results(
             ads=[(button.label, button.url) for button in buttons],
         )
 
+        # 禁用链接预览
+        link_preview_options = LinkPreviewOptions(is_disabled=True)
+
         if query:
             await query.message.edit_text(
                 html,
                 parse_mode="HTML",
                 reply_markup=keyboard,
+                link_preview_options=link_preview_options,
             )
             await query.answer()
         else:
@@ -257,9 +261,19 @@ async def respond_with_results(
                 # 在频道中，尝试使用 reply 或 send_message
                 if message.chat.type in ("channel", "supergroup"):
                     print(f"[Bot] 检测到频道/超级群组，使用 reply 方法")
-                    await message.reply(html, parse_mode="HTML", reply_markup=keyboard)
+                    await message.reply(
+                        html,
+                        parse_mode="HTML",
+                        reply_markup=keyboard,
+                        link_preview_options=link_preview_options,
+                    )
                 else:
-                    await message.reply(html, parse_mode="HTML", reply_markup=keyboard)
+                    await message.reply(
+                        html,
+                        parse_mode="HTML",
+                        reply_markup=keyboard,
+                        link_preview_options=link_preview_options,
+                    )
                 print(f"[Bot] ✅ 消息已成功发送")
             except Exception as send_error:
                 print(f"[Bot] ❌ 发送消息失败: {send_error}")
@@ -274,6 +288,7 @@ async def respond_with_results(
                         parse_mode="HTML",
                         reply_markup=keyboard,
                         reply_to_message_id=message.message_id,
+                        link_preview_options=link_preview_options,
                     )
                     print(f"[Bot] ✅ 使用 send_message 成功发送")
                 except Exception as send_msg_error:

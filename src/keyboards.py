@@ -25,21 +25,24 @@ def build_filter_row(active_filter: str, keyword: str, page: int, user_id: int) 
 
 
 def build_pagination_row(keyword: str, active_filter: str, page: int, total_pages: int, user_id: int) -> list[InlineKeyboardButton]:
-    # 只有当有多页时才显示分页按钮
-    if total_pages <= 1:
-        return []
-    
+    # 始终显示两个按钮，即使只有一页
     buttons: list[InlineKeyboardButton] = []
     
-    # 上一页按钮（只在不是第一页时显示）
+    # 上一页按钮（始终显示，但在第一页时禁用）
     if page > 1:
         prev_payload = {"a": "page", "dir": "prev", "k": keyword, "f": active_filter, "p": page - 1, "u": user_id}
         buttons.append(InlineKeyboardButton(text="« 上一页", callback_data=json_dumps(prev_payload)))
+    else:
+        # 第一页时显示禁用状态的按钮
+        buttons.append(InlineKeyboardButton(text="« 上一页", callback_data=json_dumps({"a": "noop"})))
     
-    # 下一页按钮（只在不是最后一页时显示）
+    # 下一页按钮（始终显示，但在最后一页时禁用）
     if page < total_pages:
         next_payload = {"a": "page", "dir": "next", "k": keyword, "f": active_filter, "p": page + 1, "u": user_id}
         buttons.append(InlineKeyboardButton(text="下一页 »", callback_data=json_dumps(next_payload)))
+    else:
+        # 最后一页时显示禁用状态的按钮
+        buttons.append(InlineKeyboardButton(text="下一页 »", callback_data=json_dumps({"a": "noop"})))
     
     return buttons
 
@@ -60,10 +63,9 @@ def build_keyboard(*, keyword: str, active_filter: str, page: int, total_pages: 
         build_filter_row(active_filter, keyword, page, user_id),
     ]
     
-    # 只有当有多页时才添加分页行
+    # 始终添加分页行（即使只有一页也显示）
     pagination_row = build_pagination_row(keyword, active_filter, page, total_pages, user_id)
-    if pagination_row:
-        rows.append(pagination_row)
+    rows.append(pagination_row)
     
     rows.extend(build_ads_rows(ads))
     

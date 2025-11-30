@@ -323,28 +323,30 @@ async def send_comic_page(
 
         db_user = ensure_user_record(session, user)
 
-        # 确保时区一致性
-        now = datetime.now(timezone.utc)
-        is_vip = False
-        if db_user.vip_expiry:
-            # 如果 vip_expiry 没有时区信息，添加 UTC 时区
-            if db_user.vip_expiry.tzinfo is None:
-                from datetime import timezone as tz
-                vip_expiry = db_user.vip_expiry.replace(tzinfo=tz.utc)
-            else:
-                vip_expiry = db_user.vip_expiry
-            is_vip = vip_expiry > now
+        # 检查资源是否需要VIP权限
+        if resource.is_vip:
+            # 确保时区一致性
+            now = datetime.now(timezone.utc)
+            is_vip = False
+            if db_user.vip_expiry:
+                # 如果 vip_expiry 没有时区信息，添加 UTC 时区
+                if db_user.vip_expiry.tzinfo is None:
+                    from datetime import timezone as tz
+                    vip_expiry = db_user.vip_expiry.replace(tzinfo=tz.utc)
+                else:
+                    vip_expiry = db_user.vip_expiry
+                is_vip = vip_expiry > now
 
-        if not is_vip:
-            recharge_url = settings.vip_recharge_url
-            await bot.send_message(
-                chat_id,
-                f"🔒 此内容仅限 VIP 会员访问\n\n"
-                f"点击下方链接开通 VIP：\n{recharge_url}",
-            )
-            if query:
-                await query.answer("请先开通 VIP", show_alert=True)
-            return
+            if not is_vip:
+                recharge_url = settings.vip_recharge_url
+                await bot.send_message(
+                    chat_id,
+                    f"🔒 此内容仅限 VIP 会员访问\n\n"
+                    f"点击下方链接开通 VIP：\n{recharge_url}",
+                )
+                if query:
+                    await query.answer("请先开通 VIP", show_alert=True)
+                return
 
         # VIP用户：发送所有图片
         all_files = repo.list_comic_files(resource_id, limit=total_images, offset=0)

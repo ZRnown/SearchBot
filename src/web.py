@@ -560,20 +560,6 @@ async def upload_comic(
             raise HTTPException(status_code=500, detail="无法获取文件 ID")
         stored_file_ids.append(message.photo[-1].file_id)
 
-    # 发送前几张图片到预览频道
-    preview_file_ids = stored_file_ids[:min(preview_count, len(stored_file_ids))]
-    preview_messages = []
-    for file_id in preview_file_ids:
-        try:
-            message = await admin_bot.send_photo(
-                settings.channels.comic_preview_channel_id,
-                photo=file_id,
-            )
-            preview_messages.append(message)
-        except Exception as e:
-            logger.error(f"发送预览图片失败: {e}")
-            # 预览失败不影响主流程，继续执行
-
     cover_file_id = stored_file_ids[0]
     bot_username = await get_bot_username()
 
@@ -589,27 +575,36 @@ async def upload_comic(
         session.flush()
 
         deep_link = f"https://t.me/{bot_username}?start=comic_{resource.id}"
+        
+        # 发送前几张图片到预览频道，第一张图片的caption包含超链接
+        preview_file_ids = stored_file_ids[:min(preview_count, len(stored_file_ids))]
+        preview_messages = []
+        for idx, file_id in enumerate(preview_file_ids):
+            try:
+                # 第一张图片添加caption（包含超链接），其他图片不添加caption
+                if idx == 0:
+                    caption = f'📖 <a href="{deep_link}">{title}</a>'
+                    message = await admin_bot.send_photo(
+                        settings.channels.comic_preview_channel_id,
+                        photo=file_id,
+                        caption=caption,
+                        parse_mode="HTML",
+                    )
+                else:
+                    message = await admin_bot.send_photo(
+                        settings.channels.comic_preview_channel_id,
+                        photo=file_id,
+                    )
+                preview_messages.append(message)
+            except Exception as e:
+                logger.error(f"发送预览图片失败: {e}")
+                # 预览失败不影响主流程，继续执行
+        
         # 如果有预览消息，使用第一个预览消息的链接
         if preview_messages:
             preview_msg_id = preview_messages[0].message_id
             formatted_id = format_channel_id_for_link(settings.channels.comic_preview_channel_id)
             resource.preview_url = f"https://t.me/c/{formatted_id}/{preview_msg_id}"
-            
-            # 在预览消息后发送一条带深度链接按钮的消息（回复到最后一个预览消息）
-            try:
-                last_preview_msg_id = preview_messages[-1].message_id
-                keyboard = InlineKeyboardMarkup(inline_keyboard=[[
-                    InlineKeyboardButton(text=title, url=deep_link)
-                ]])
-                await admin_bot.send_message(
-                    settings.channels.comic_preview_channel_id,
-                    text=f"📖 {title}",
-                    reply_to_message_id=last_preview_msg_id,
-                    reply_markup=keyboard,
-                )
-            except Exception as e:
-                logger.error(f"发送深度链接按钮失败: {e}")
-                # 按钮发送失败不影响主流程
         else:
             resource.preview_url = deep_link
         
@@ -731,22 +726,6 @@ async def upload_comic_archive(
                 logger.error(f"发送图片失败 {img_path.name}: {e}")
                 raise HTTPException(status_code=500, detail=f"发送图片失败: {img_path.name}")
         
-        # 发送前几张图片到预览频道（作为一条媒体组消息）
-        preview_file_ids = stored_file_ids[:min(preview_count, len(stored_file_ids))]
-        preview_messages = []
-        if preview_file_ids:
-            try:
-                from aiogram.types import InputMediaPhoto
-                media_group = [InputMediaPhoto(media=file_id) for file_id in preview_file_ids]
-                messages = await admin_bot.send_media_group(
-                    settings.channels.comic_preview_channel_id,
-                    media=media_group,
-                )
-                preview_messages.extend(messages)
-            except Exception as e:
-                logger.error(f"发送预览图片失败: {e}")
-                # 预览失败不影响主流程，继续执行
-        
         cover_file_id = stored_file_ids[0]
         bot_username = await get_bot_username()
         
@@ -762,26 +741,35 @@ async def upload_comic_archive(
             session.flush()
             
             deep_link = f"https://t.me/{bot_username}?start=comic_{resource.id}"
+            
+            # 发送前几张图片到预览频道（作为一条媒体组消息），第一张图片的caption包含超链接
+            preview_file_ids = stored_file_ids[:min(preview_count, len(stored_file_ids))]
+            preview_messages = []
+            if preview_file_ids:
+                try:
+                    from aiogram.types import InputMediaPhoto
+                    # 第一张图片添加caption（包含超链接），其他图片不添加caption
+                    media_group = []
+                    for idx, file_id in enumerate(preview_file_ids):
+                        if idx == 0:
+                            caption = f'📖 <a href="{deep_link}">{title}</a>'
+                            media_group.append(InputMediaPhoto(media=file_id, caption=caption, parse_mode="HTML"))
+                        else:
+                            media_group.append(InputMediaPhoto(media=file_id))
+                    messages = await admin_bot.send_media_group(
+                        settings.channels.comic_preview_channel_id,
+                        media=media_group,
+                    )
+                    preview_messages.extend(messages)
+                except Exception as e:
+                    logger.error(f"发送预览图片失败: {e}")
+                    # 预览失败不影响主流程，继续执行
+            
             # 如果有预览消息，使用第一个预览消息的链接
             if preview_messages:
                 preview_msg_id = preview_messages[0].message_id
                 formatted_id = format_channel_id_for_link(settings.channels.comic_preview_channel_id)
                 resource.preview_url = f"https://t.me/c/{formatted_id}/{preview_msg_id}"
-                
-                # 在预览消息后发送一条带深度链接按钮的消息
-                try:
-                    keyboard = InlineKeyboardMarkup(inline_keyboard=[[
-                        InlineKeyboardButton(text=title, url=deep_link)
-                    ]])
-                    await admin_bot.send_message(
-                        settings.channels.comic_preview_channel_id,
-                        text=f"📖 {title}",
-                        reply_to_message_id=preview_msg_id,
-                        reply_markup=keyboard,
-                    )
-                except Exception as e:
-                    logger.error(f"发送深度链接按钮失败: {e}")
-                    # 按钮发送失败不影响主流程
             else:
                 resource.preview_url = deep_link
             
@@ -879,21 +867,6 @@ async def batch_upload_comic_archives(
                     logger.error(f"发送图片失败 {img_path.name}: {e}")
                     raise HTTPException(status_code=500, detail=f"发送图片失败: {img_path.name}")
             
-            # 发送前几张图片到预览频道（作为一条媒体组消息）
-            preview_file_ids = stored_file_ids[:min(preview_count, len(stored_file_ids))]
-            preview_messages = []
-            if preview_file_ids:
-                try:
-                    from aiogram.types import InputMediaPhoto
-                    media_group = [InputMediaPhoto(media=file_id) for file_id in preview_file_ids]
-                    messages = await admin_bot.send_media_group(
-                        settings.channels.comic_preview_channel_id,
-                        media=media_group,
-                    )
-                    preview_messages.extend(messages)
-                except Exception as e:
-                    logger.error(f"发送预览图片失败: {e}")
-            
             cover_file_id = stored_file_ids[0]
             bot_username = await get_bot_username()
             
@@ -909,25 +882,33 @@ async def batch_upload_comic_archives(
                 session.flush()
                 
                 deep_link = f"https://t.me/{bot_username}?start=comic_{resource.id}"
+                
+                # 发送前几张图片到预览频道（作为一条媒体组消息），第一张图片的caption包含超链接
+                preview_file_ids = stored_file_ids[:min(preview_count, len(stored_file_ids))]
+                preview_messages = []
+                if preview_file_ids:
+                    try:
+                        from aiogram.types import InputMediaPhoto
+                        # 第一张图片添加caption（包含超链接），其他图片不添加caption
+                        media_group = []
+                        for idx, file_id in enumerate(preview_file_ids):
+                            if idx == 0:
+                                caption = f'📖 <a href="{deep_link}">{title}</a>'
+                                media_group.append(InputMediaPhoto(media=file_id, caption=caption, parse_mode="HTML"))
+                            else:
+                                media_group.append(InputMediaPhoto(media=file_id))
+                        messages = await admin_bot.send_media_group(
+                            settings.channels.comic_preview_channel_id,
+                            media=media_group,
+                        )
+                        preview_messages.extend(messages)
+                    except Exception as e:
+                        logger.error(f"发送预览图片失败: {e}")
+                
                 if preview_messages:
                     preview_msg_id = preview_messages[0].message_id
                     formatted_id = format_channel_id_for_link(settings.channels.comic_preview_channel_id)
                     resource.preview_url = f"https://t.me/c/{formatted_id}/{preview_msg_id}"
-                    
-                    # 在预览消息后发送一条带深度链接按钮的消息
-                    try:
-                        keyboard = InlineKeyboardMarkup(inline_keyboard=[[
-                            InlineKeyboardButton(text=title, url=deep_link)
-                        ]])
-                        await admin_bot.send_message(
-                            settings.channels.comic_preview_channel_id,
-                            text=f"📖 {title}",
-                            reply_to_message_id=preview_msg_id,
-                            reply_markup=keyboard,
-                        )
-                    except Exception as e:
-                        logger.error(f"发送深度链接按钮失败: {e}")
-                        # 按钮发送失败不影响主流程
                 else:
                     resource.preview_url = deep_link
                 

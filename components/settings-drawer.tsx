@@ -37,7 +37,7 @@ export function SettingsDrawer({ username }: SettingsDrawerProps) {
           const entries = [
             { id: data.searchChannelId, name: "搜索群组 / 频道" },
             { id: data.storageChannelId, name: "漫画仓库频道" },
-          ]
+  ]
           setChannels(entries)
         }
       } catch (error) {

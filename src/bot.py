@@ -65,6 +65,10 @@ async def debug_search_channel_messages(message: Message):
 @router.message(F.chat.id == settings.channels.search_channel_id)
 async def handle_search(message: Message):
     # 获取消息文本（可能是直接文本、转发消息的文本、或回复消息的文本）
+    print(f"[Bot] 🔍 handle_search 被调用!")
+    print(f"[Bot]   消息 ID: {message.message_id}")
+    print(f"[Bot]   聊天 ID: {message.chat.id}")
+    print(f"[Bot]   配置的搜索频道 ID: {settings.channels.search_channel_id}")
     keyword = None
     if message.text:
         keyword = message.text.strip()

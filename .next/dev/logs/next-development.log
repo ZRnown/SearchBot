@@ -1,1 +1,15 @@
-[00:00:00.898] Server  LOG      ✓ Ready in 675ms
+[00:00:00.876] Server  LOG      ✓ Ready in 635ms
+[00:00:06.669] Browser INFO    %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold
+[00:00:06.813] Server  LOG     [admin-api] BASE_URL: "http://127.0.0.1:8000"
+[00:00:06.823] Browser INFO    [TronLink] TronWeb is already initiated. TronLink will overwrite the current instance
+[00:00:06.823] Browser INFO    Provider initialised
+[00:00:06.823] Browser INFO    Provider initialised
+[00:00:06.823] Browser INFO    Provider initialised
+[00:00:06.823] Browser LOG     %c[Vercel Web Analytics]%c Debug mode is enabled by default in development. No requests will be sent to the server. color: rgb(120, 120, 120) color: inherit
+[00:00:06.823] Browser LOG     %c[Vercel Web Analytics]%c Running queued event color: rgb(120, 120, 120) color: inherit pageview {"path":"/","route":"/"}
+[00:00:06.823] Browser LOG     %c[Vercel Web Analytics]%c [pageview] http://localhost:3001/ color: rgb(120, 120, 120) color: inherit {"dp":"/","o":"http://localhost:3001/","r":"","sdkn":"@vercel/analytics/next","sdkv":"1.5.0","sv":"0.1.3","ts":1764478777655}
+[00:00:06.910] Browser INFO    Received new node: https://api.trongrid.io
+[00:00:06.910] Browser INFO    Received new node: https://api.trongrid.io
+[00:00:06.910] Browser INFO    Received new node: https://api.trongrid.io
+[00:00:06.910] Browser INFO    TronLink initiated
+[00:00:07.093] Browser LOG     %c[Vercel Web Analytics]%c [pageview] http://localhost:3001/login color: rgb(120, 120, 120) color: inherit {"dp":"/login","o":"http://localhost:3001/login","sdkn":"@vercel/analytics/next","sdkv":"1.5.0","sv":"0.1.3","ts":1764478777941}

@@ -44,11 +44,25 @@ module.exports = mod;
 "[project]/lib/admin-api.ts [app-route] (ecmascript)", ((__turbopack_context__) => {
 "use strict";
 
+// 获取后端 API 地址
+// 优先使用 ADMIN_API_BASE_URL，如果没有则使用默认值
 __turbopack_context__.s([
     "adminFetch",
     ()=>adminFetch
 ]);
-const BASE_URL = process.env.ADMIN_API_BASE_URL ?? `http://127.0.0.1:${process.env.WEB_PORT ?? "8080"}`;
+const getBaseUrl = ()=>{
+    if (process.env.ADMIN_API_BASE_URL) {
+        return process.env.ADMIN_API_BASE_URL;
+    }
+    // 默认使用 localhost
+    const port = process.env.WEB_PORT ?? "8000";
+    return `http://127.0.0.1:${port}`;
+};
+const BASE_URL = getBaseUrl();
+// 调试：输出 BASE_URL（仅在开发环境）
+if ("TURBOPACK compile-time truthy", 1) {
+    console.log("[admin-api] BASE_URL:", BASE_URL);
+}
 async function adminFetch(path, init, token) {
     const url = path.startsWith("http") ? path : `${BASE_URL}${path}`;
     const headers = new Headers(init?.headers);
@@ -101,12 +115,15 @@ async function POST(request) {
     const response = __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f2e$pnpm$2f$next$40$16$2e$0$2e$3_react$2d$dom$40$19$2e$2$2e$0_react$40$19$2e$2$2e$0_$5f$react$40$19$2e$2$2e$0$2f$node_modules$2f$next$2f$server$2e$js__$5b$app$2d$route$5d$__$28$ecmascript$29$__["NextResponse"].json({
         username: payload.username
     });
+    // 判断是否为 HTTPS（只有在明确设置 FORCE_SECURE_COOKIE=true 时才使用 secure）
+    // 默认在 HTTP 环境下不使用 secure
+    const isSecure = process.env.FORCE_SECURE_COOKIE === "true";
     response.cookies.set("admin_token", data.access_token, {
         httpOnly: true,
         sameSite: "lax",
-        secure: ("TURBOPACK compile-time value", "development") === "production",
+        secure: isSecure,
         path: "/",
-        maxAge: data.expires_in ?? 3600
+        maxAge: data.expires_in ?? 3600 * 24 * 7
     });
     return response;
 }

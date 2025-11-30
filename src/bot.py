@@ -43,12 +43,43 @@ async def handle_start(message: Message):
     await message.answer("请输入关键字到搜索频道，即可获取资源列表。")
 
 
+# 调试：记录所有进入搜索频道的消息（在搜索处理器之前，但不拦截）
+@router.message(F.chat.id == settings.channels.search_channel_id, flags={"block": False})
+async def debug_search_channel_messages(message: Message):
+    """调试函数：记录所有进入搜索频道的消息，帮助诊断为什么某些消息没有触发搜索"""
+    print(f"[Bot] [DEBUG] 搜索频道收到消息:")
+    print(f"[Bot] [DEBUG]   消息 ID: {message.message_id}")
+    print(f"[Bot] [DEBUG]   用户 ID: {message.from_user.id if message.from_user else 'None'}")
+    print(f"[Bot] [DEBUG]   消息类型: {message.content_type if hasattr(message, 'content_type') else 'unknown'}")
+    print(f"[Bot] [DEBUG]   有文本: {bool(message.text)}")
+    print(f"[Bot] [DEBUG]   有说明: {bool(message.caption)}")
+    print(f"[Bot] [DEBUG]   文本内容: {message.text[:50] if message.text else 'None'}...")
+    print(f"[Bot] [DEBUG]   说明内容: {message.caption[:50] if message.caption else 'None'}...")
+    print(f"[Bot] [DEBUG]   是转发: {bool(message.forward_from_chat)}")
+    print(f"[Bot] [DEBUG]   是回复: {bool(message.reply_to_message)}")
+
+
 # 搜索处理器需要更高的优先级，放在 track_messages 之前
-@router.message(F.chat.id == settings.channels.search_channel_id, F.text)
+# 处理文本消息和可能包含文本的其他消息类型
+@router.message(F.chat.id == settings.channels.search_channel_id)
 async def handle_search(message: Message):
-    keyword = message.text.strip()
-    if not keyword:
+    # 获取消息文本（可能是直接文本、转发消息的文本、或回复消息的文本）
+    keyword = None
+    if message.text:
+        keyword = message.text.strip()
+    elif message.caption:  # 图片/视频等带说明的消息
+        keyword = message.caption.strip()
+    elif message.forward_from_chat and message.forward_from_message_id:
+        # 转发消息，尝试获取原始消息文本
+        print(f"[Bot] ⚠️ 收到转发消息，无法直接获取文本内容")
         return
+    
+    if not keyword:
+        print(f"[Bot] ⚠️ 消息没有文本内容，跳过处理")
+        print(f"[Bot]   消息类型: {message.content_type if hasattr(message, 'content_type') else 'unknown'}")
+        print(f"[Bot]   消息 ID: {message.message_id}")
+        return
+    
     print(f"[Bot] ========== 收到搜索请求 ==========")
     print(f"[Bot] 频道 ID: {message.chat.id}")
     print(f"[Bot] 配置的搜索频道 ID: {settings.channels.search_channel_id}")
@@ -57,6 +88,8 @@ async def handle_search(message: Message):
     print(f"[Bot] 用户 ID: {message.from_user.id if message.from_user else 'None'}")
     print(f"[Bot] 消息 ID: {message.message_id}")
     print(f"[Bot] 聊天类型: {message.chat.type}")
+    print(f"[Bot] 消息内容类型: {message.content_type if hasattr(message, 'content_type') else 'unknown'}")
+    
     try:
         await respond_with_results(
             message=message,
@@ -97,6 +130,17 @@ async def handle_callback(query: CallbackQuery):
 
     action = payload.get("a")
     if action in {"filter", "page"}:
+        # 检查用户ID是否匹配
+        expected_user_id = payload.get("u")
+        if expected_user_id is None:
+            # 兼容旧版本：如果没有用户ID，允许操作（向后兼容）
+            print(f"[Bot] ⚠️ 回调数据中没有用户ID，允许操作（向后兼容）")
+        elif query.from_user and query.from_user.id != expected_user_id:
+            # 用户ID不匹配，拒绝操作
+            print(f"[Bot] ❌ 用户ID不匹配: 期望 {expected_user_id}, 实际 {query.from_user.id if query.from_user else 'None'}")
+            await query.answer("只有发送搜索请求的用户才能操作此结果", show_alert=True)
+            return
+        
         keyword = payload.get("k", "")
         category = payload.get("f", "all")
         page = max(payload.get("p", 1), 1)
@@ -128,6 +172,28 @@ async def handle_callback(query: CallbackQuery):
 
     if action == "noop":
         await query.answer()
+        return
+    
+    if action == "clear_buttons":
+        # 检查用户ID是否匹配
+        expected_user_id = payload.get("u")
+        if expected_user_id is None:
+            # 兼容旧版本：如果没有用户ID，允许操作（向后兼容）
+            print(f"[Bot] ⚠️ 清除按钮回调数据中没有用户ID，允许操作（向后兼容）")
+        elif query.from_user and query.from_user.id != expected_user_id:
+            # 用户ID不匹配，拒绝操作
+            print(f"[Bot] ❌ 清除按钮用户ID不匹配: 期望 {expected_user_id}, 实际 {query.from_user.id if query.from_user else 'None'}")
+            await query.answer("只有发送搜索请求的用户才能操作此结果", show_alert=True)
+            return
+        
+        # 清除按钮：编辑消息，移除键盘
+        try:
+            await query.message.edit_reply_markup(reply_markup=None)
+            await query.answer("✅ 按钮已清除", show_alert=False)
+            print(f"[Bot] ✅ 用户 {query.from_user.id if query.from_user else 'Unknown'} 清除了搜索结果按钮")
+        except Exception as e:
+            print(f"[Bot] ❌ 清除按钮失败: {e}")
+            await query.answer("清除按钮失败", show_alert=True)
         return
 
     await query.answer("未知操作", show_alert=True)
@@ -194,10 +260,18 @@ async def respond_with_results(
             total_pages=result.total_pages,
             reference_time=datetime.utcnow(),
         )
+        # 获取发起搜索的用户ID
+        search_user_id = (query.from_user.id if query else (message.from_user.id if message and message.from_user else None))
+        if search_user_id is None:
+            print(f"[Bot] ⚠️ 无法获取用户ID，使用 0 作为默认值")
+            search_user_id = 0
+        
         keyboard = build_keyboard(
             keyword=keyword,
             active_filter=category,
             page=page,
+            total_pages=result.total_pages,
+            user_id=search_user_id,
             ads=[(button.label, button.url) for button in buttons],
         )
 

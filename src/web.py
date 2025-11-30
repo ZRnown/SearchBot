@@ -18,7 +18,7 @@ except ImportError:
 
 from aiogram import Bot
 from aiogram.client.default import DefaultBotProperties
-from aiogram.types import BufferedInputFile
+from aiogram.types import BufferedInputFile, InlineKeyboardButton, InlineKeyboardMarkup
 from fastapi import Body, Depends, FastAPI, File, Form, HTTPException, Query, Response, UploadFile, Body
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer
@@ -594,6 +594,22 @@ async def upload_comic(
             preview_msg_id = preview_messages[0].message_id
             formatted_id = format_channel_id_for_link(settings.channels.comic_preview_channel_id)
             resource.preview_url = f"https://t.me/c/{formatted_id}/{preview_msg_id}"
+            
+            # 在预览消息后发送一条带深度链接按钮的消息（回复到最后一个预览消息）
+            try:
+                last_preview_msg_id = preview_messages[-1].message_id
+                keyboard = InlineKeyboardMarkup(inline_keyboard=[[
+                    InlineKeyboardButton(text=title, url=deep_link)
+                ]])
+                await admin_bot.send_message(
+                    settings.channels.comic_preview_channel_id,
+                    text=f"📖 {title}",
+                    reply_to_message_id=last_preview_msg_id,
+                    reply_markup=keyboard,
+                )
+            except Exception as e:
+                logger.error(f"发送深度链接按钮失败: {e}")
+                # 按钮发送失败不影响主流程
         else:
             resource.preview_url = deep_link
         
@@ -751,6 +767,21 @@ async def upload_comic_archive(
                 preview_msg_id = preview_messages[0].message_id
                 formatted_id = format_channel_id_for_link(settings.channels.comic_preview_channel_id)
                 resource.preview_url = f"https://t.me/c/{formatted_id}/{preview_msg_id}"
+                
+                # 在预览消息后发送一条带深度链接按钮的消息
+                try:
+                    keyboard = InlineKeyboardMarkup(inline_keyboard=[[
+                        InlineKeyboardButton(text=title, url=deep_link)
+                    ]])
+                    await admin_bot.send_message(
+                        settings.channels.comic_preview_channel_id,
+                        text=f"📖 {title}",
+                        reply_to_message_id=preview_msg_id,
+                        reply_markup=keyboard,
+                    )
+                except Exception as e:
+                    logger.error(f"发送深度链接按钮失败: {e}")
+                    # 按钮发送失败不影响主流程
             else:
                 resource.preview_url = deep_link
             
@@ -882,6 +913,21 @@ async def batch_upload_comic_archives(
                     preview_msg_id = preview_messages[0].message_id
                     formatted_id = format_channel_id_for_link(settings.channels.comic_preview_channel_id)
                     resource.preview_url = f"https://t.me/c/{formatted_id}/{preview_msg_id}"
+                    
+                    # 在预览消息后发送一条带深度链接按钮的消息
+                    try:
+                        keyboard = InlineKeyboardMarkup(inline_keyboard=[[
+                            InlineKeyboardButton(text=title, url=deep_link)
+                        ]])
+                        await admin_bot.send_message(
+                            settings.channels.comic_preview_channel_id,
+                            text=f"📖 {title}",
+                            reply_to_message_id=preview_msg_id,
+                            reply_markup=keyboard,
+                        )
+                    except Exception as e:
+                        logger.error(f"发送深度链接按钮失败: {e}")
+                        # 按钮发送失败不影响主流程
                 else:
                     resource.preview_url = deep_link
                 

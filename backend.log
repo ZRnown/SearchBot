@@ -1,22 +1,14 @@
 INFO:     Will watch for changes in these directories: ['/Users/wanghaixin/Development/telegramBotWork/SearchBot']
 INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
-INFO:     Started reloader process [24485] using StatReload
-INFO:     Started server process [24488]
+INFO:     Started reloader process [40401] using StatReload
+INFO:     Started server process [40404]
 INFO:     Waiting for application startup.
 INFO:     Application startup complete.
 WARNING:  StatReload detected changes in 'src/bot.py'. Reloading...
 INFO:     Shutting down
 INFO:     Waiting for application shutdown.
 INFO:     Application shutdown complete.
-INFO:     Finished server process [24488]
-INFO:     Started server process [25234]
-INFO:     Waiting for application startup.
-INFO:     Application startup complete.
-WARNING:  StatReload detected changes in 'src/bot.py'. Reloading...
-INFO:     Shutting down
-INFO:     Waiting for application shutdown.
-INFO:     Application shutdown complete.
-INFO:     Finished server process [25234]
-INFO:     Started server process [25529]
+INFO:     Finished server process [40404]
+INFO:     Started server process [40472]
 INFO:     Waiting for application startup.
 INFO:     Application startup complete.

@@ -138,11 +138,37 @@ async def handle_callback(query: CallbackQuery):
         category = payload.get("f", "all")
         page = max(payload.get("p", 1), 1)
         
-        # 如果是筛选操作且关键词为空，拒绝操作
+        # 调试日志
+        print(f"[Bot] 🔍 回调数据: action={action}, keyword={repr(keyword)}, category={category}, page={page}, payload={payload}")
+        
+        # 如果是筛选操作且关键词为空，尝试从消息文本中恢复关键词
         if action == "filter" and not keyword:
-            print(f"[Bot] ⚠️ 筛选操作被拒绝：关键词为空")
-            await query.answer("请先输入关键词进行搜索，然后再筛选类型", show_alert=True)
-            return
+            # 尝试从搜索结果消息文本中解析关键词
+            # 消息格式: "👤 来自：...\n🔍 关键词：「...」\n\n..."
+            original_message = query.message
+            if original_message and original_message.text:
+                import re
+                # 匹配 "🔍 关键词：「...」" 格式
+                match = re.search(r'🔍\s*关键词：?「([^」]*)」', original_message.text)
+                if match:
+                    keyword = match.group(1).strip()
+                    print(f"[Bot] 🔄 从消息文本中恢复关键词: {repr(keyword)}")
+                else:
+                    # 如果消息是回复消息，尝试从被回复的消息中获取关键词
+                    if original_message.reply_to_message:
+                        replied_msg = original_message.reply_to_message
+                        if replied_msg.text:
+                            keyword = replied_msg.text.strip()
+                            print(f"[Bot] 🔄 从被回复的消息中恢复关键词: {repr(keyword)}")
+                        elif replied_msg.caption:
+                            keyword = replied_msg.caption.strip()
+                            print(f"[Bot] 🔄 从被回复的消息说明中恢复关键词: {repr(keyword)}")
+            
+            # 如果仍然没有关键词，允许筛选操作（因为用户已经看到了搜索结果，说明关键词是存在的）
+            # 这种情况下，我们允许筛选，但会在搜索时使用空关键词（这实际上会显示所有资源）
+            if not keyword:
+                print(f"[Bot] ⚠️ 筛选操作：关键词在 callback_data 中丢失且无法恢复，但允许继续（用户已看到搜索结果）")
+                # 不拒绝操作，允许继续，但记录警告
         
         if action == "page":
             direction = payload.get("dir")

@@ -34,7 +34,8 @@ fi
 
 # 启动后端服务（后台运行）
 echo "🔧 启动后端服务 (FastAPI)..."
-uvicorn src.web:app --host 0.0.0.0 --port 8000 --reload > backend.log 2>&1 &
+# 增加超时时间和文件大小限制以支持大文件上传
+uvicorn src.web:app --host 0.0.0.0 --port 8000 --reload --timeout-keep-alive 300 --limit-concurrency 1000 > backend.log 2>&1 &
 BACKEND_PID=$!
 echo "   后端服务 PID: $BACKEND_PID"
 

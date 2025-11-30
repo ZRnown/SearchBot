@@ -40,5 +40,11 @@ pkill -f "uvicorn src.web:app" 2>/dev/null || true
 pkill -f "python -m src.bot" 2>/dev/null || true
 pkill -f "next dev" 2>/dev/null || true
 
+# 清理 Next.js 锁文件
+if [ -d ".next/dev" ]; then
+    rm -rf .next/dev/lock 2>/dev/null || true
+    echo "   清理 Next.js 锁文件..."
+fi
+
 echo "✅ 所有服务已停止"
 

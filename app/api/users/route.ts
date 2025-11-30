@@ -12,7 +12,17 @@ export async function GET(request: Request) {
 
     const { searchParams } = new URL(request.url)
     const search = searchParams.get("search")
-    const query = search ? `?search=${encodeURIComponent(search)}` : ""
+    const skip = searchParams.get("skip") || "0"
+    const limit = searchParams.get("limit") || "50"
+    
+    const params = new URLSearchParams()
+    if (search) {
+      params.append("search", search)
+    }
+    params.append("skip", skip)
+    params.append("limit", limit)
+    const query = params.toString() ? `?${params.toString()}` : ""
+    
     const response = await adminFetch(`/users${query}`, undefined, token)
     const data = await response.json()
     return NextResponse.json(data)

@@ -1,1 +1,8 @@
-{}
+{
+  "/api/auth/session/route": "app/api/auth/session/route.js",
+  "/api/resources/batch-delete/route": "app/api/resources/batch-delete/route.js",
+  "/api/resources/comics/batch-archive/route": "app/api/resources/comics/batch-archive/route.js",
+  "/api/resources/count/route": "app/api/resources/count/route.js",
+  "/api/resources/route": "app/api/resources/route.js",
+  "/page": "app/page.js"
+}

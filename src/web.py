@@ -4,6 +4,7 @@ import os
 import zipfile
 import tempfile
 import shutil
+import asyncio
 from datetime import datetime, timedelta
 from typing import Annotated, List, Optional
 from pathlib import Path
@@ -18,7 +19,8 @@ except ImportError:
 
 from aiogram import Bot
 from aiogram.client.default import DefaultBotProperties
-from aiogram.types import BufferedInputFile, InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.types import BufferedInputFile, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto
+from aiogram.exceptions import TelegramRetryAfter, TelegramAPIError
 from fastapi import Body, Depends, FastAPI, File, Form, HTTPException, Query, Response, UploadFile, Body
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer
@@ -121,7 +123,11 @@ class UserUpdateIn(BaseModel):
 
 logger = logging.getLogger(__name__)
 MAX_BCRYPT_BYTES = 72
-app = FastAPI(title="Resource Admin Panel")
+# 配置 FastAPI 以支持大文件上传
+app = FastAPI(
+    title="Resource Admin Panel",
+    # 注意：文件大小限制在 uvicorn 启动参数中配置
+)
 admin_bot = Bot(
     token=settings.bot_token,
     default=DefaultBotProperties(parse_mode="HTML"),
@@ -274,6 +280,32 @@ async def healthz():
     return {"status": "ok"}
 
 
+async def send_photo_with_retry(
+    bot: Bot,
+    chat_id: int,
+    photo: BufferedInputFile | str,
+    max_retries: int = 3,
+    initial_delay: float = 1.0,
+) -> any:
+    """发送图片，带重试机制和 Flood control 处理"""
+    for attempt in range(max_retries):
+        try:
+            message = await bot.send_photo(chat_id, photo=photo)
+            return message
+        except TelegramRetryAfter as e:
+            wait_time = e.retry_after + 1  # 多等1秒
+            logger.warning(f"触发 Flood control，等待 {wait_time} 秒后重试 (尝试 {attempt + 1}/{max_retries})")
+            await asyncio.sleep(wait_time)
+        except TelegramAPIError as e:
+            if attempt < max_retries - 1:
+                wait_time = initial_delay * (2 ** attempt)  # 指数退避
+                logger.warning(f"发送图片失败，{wait_time} 秒后重试 (尝试 {attempt + 1}/{max_retries}): {e}")
+                await asyncio.sleep(wait_time)
+            else:
+                raise
+    raise Exception(f"发送图片失败，已重试 {max_retries} 次")
+
+
 def format_channel_id_for_link(channel_id: int) -> str:
     """将 Telegram 频道 ID 格式化为链接格式（去掉 -100 前缀）"""
     channel_str = str(abs(channel_id))
@@ -359,14 +391,29 @@ async def change_password(
 async def list_resources(
     _: Annotated[str, Depends(require_admin)],
     resource_type: Optional[str] = Query(None, regex="^(novel|audio|comic)$"),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=100),
 ):
     bot_username = await get_bot_username()
     with db_session() as session:
         query = session.query(Resource)
         if resource_type:
             query = query.filter(Resource.type == resource_type)
-        resources = query.order_by(Resource.created_at.desc()).all()
+        resources = query.order_by(Resource.created_at.desc()).offset(skip).limit(limit).all()
     return [build_resource_response(res, bot_username) for res in resources]
+
+
+@app.get("/resources/count")
+async def get_resources_count(
+    _: Annotated[str, Depends(require_admin)],
+    resource_type: Optional[str] = Query(None, regex="^(novel|audio|comic)$"),
+):
+    with db_session() as session:
+        query = session.query(Resource)
+        if resource_type:
+            query = query.filter(Resource.type == resource_type)
+        count = query.count()
+    return {"count": count}
 
 
 @app.delete("/resources/{resource_id}", status_code=204)
@@ -378,6 +425,48 @@ async def delete_resource(
         resource = session.get(Resource, resource_id)
         if not resource:
             raise HTTPException(status_code=404, detail="Resource not found")
+        
+        # 删除预览频道的消息
+        if resource.preview_message_id:
+            try:
+                await admin_bot.delete_message(
+                    chat_id=settings.channels.comic_preview_channel_id,
+                    message_id=resource.preview_message_id,
+                )
+                logger.info(f"已删除预览频道消息: {resource.preview_message_id}")
+            except Exception as e:
+                logger.warning(f"删除预览频道消息失败: {e} (消息可能已被删除)")
+        
+        # 对于漫画类型，删除仓库频道的消息
+        if resource.type == "comic":
+            comic_files = session.query(ComicFile).filter(ComicFile.resource_id == resource_id).all()
+            total_files = len(comic_files)
+            files_with_message_id = sum(1 for cf in comic_files if cf.storage_message_id)
+            deleted_count = 0
+            failed_count = 0
+            
+            logger.info(f"资源 {resource.id} 共有 {total_files} 个文件，其中 {files_with_message_id} 个有消息ID")
+            
+            for comic_file in comic_files:
+                if comic_file.storage_message_id:
+                    try:
+                        await admin_bot.delete_message(
+                            chat_id=settings.channels.storage_channel_id,
+                            message_id=comic_file.storage_message_id,
+                        )
+                        deleted_count += 1
+                        logger.info(f"已删除仓库频道消息: {comic_file.storage_message_id}")
+                        # 添加小延迟避免触发速率限制
+                        await asyncio.sleep(0.1)
+                    except Exception as e:
+                        failed_count += 1
+                        # 消息可能已被删除，这是正常的，只记录警告
+                        logger.warning(f"删除仓库频道消息失败 (message_id={comic_file.storage_message_id}): {e} (消息可能已被删除)")
+                else:
+                    logger.warning(f"文件 {comic_file.id} (order={comic_file.order}) 没有 storage_message_id，无法删除")
+            
+            logger.info(f"资源 {resource.id} 删除完成: 成功 {deleted_count}/{files_with_message_id}，失败 {failed_count}，无消息ID {total_files - files_with_message_id}")
+        
         session.delete(resource)
         session.flush()
 
@@ -390,8 +479,56 @@ async def batch_delete_resources(
     with db_session() as session:
         resources = session.query(Resource).filter(Resource.id.in_(resource_ids)).all()
         for resource in resources:
+            # 删除预览频道的消息
+            if resource.preview_message_id:
+                try:
+                    await admin_bot.delete_message(
+                        chat_id=settings.channels.comic_preview_channel_id,
+                        message_id=resource.preview_message_id,
+                    )
+                    logger.info(f"已删除预览频道消息: {resource.preview_message_id}")
+                except Exception as e:
+                    # 消息可能已被删除，这是正常的，只记录警告
+                    logger.warning(f"删除预览频道消息失败: {e} (消息可能已被删除)")
+            
+            # 对于漫画类型，删除仓库频道的消息
+            if resource.type == "comic":
+                comic_files = session.query(ComicFile).filter(ComicFile.resource_id == resource.id).all()
+                total_files = len(comic_files)
+                files_with_message_id = sum(1 for cf in comic_files if cf.storage_message_id)
+                deleted_count = 0
+                failed_count = 0
+                
+                logger.info(f"资源 {resource.id} 共有 {total_files} 个文件，其中 {files_with_message_id} 个有消息ID")
+                
+                for comic_file in comic_files:
+                    if comic_file.storage_message_id:
+                        try:
+                            await admin_bot.delete_message(
+                                chat_id=settings.channels.storage_channel_id,
+                                message_id=comic_file.storage_message_id,
+                            )
+                            deleted_count += 1
+                            logger.info(f"已删除仓库频道消息: {comic_file.storage_message_id}")
+                            # 添加小延迟避免触发速率限制
+                            await asyncio.sleep(0.1)
+                        except Exception as e:
+                            failed_count += 1
+                            # 消息可能已被删除，这是正常的，只记录警告
+                            logger.warning(f"删除仓库频道消息失败 (message_id={comic_file.storage_message_id}): {e} (消息可能已被删除)")
+                    else:
+                        logger.warning(f"文件 {comic_file.id} (order={comic_file.order}) 没有 storage_message_id，无法删除")
+                
+                logger.info(f"资源 {resource.id} 删除完成: 成功 {deleted_count}/{files_with_message_id}，失败 {failed_count}，无消息ID {total_files - files_with_message_id}")
+            
+            # 删除资源（CASCADE 会自动删除关联的 comic_files）
             session.delete(resource)
-        session.flush()
+        try:
+            session.flush()
+        except Exception as e:
+            logger.error(f"删除资源时出错: {e}")
+            session.rollback()
+            raise HTTPException(status_code=500, detail=f"删除资源失败: {str(e)}")
     return Response(status_code=204)
 
 
@@ -600,22 +737,29 @@ async def upload_comic(
                 logger.error(f"发送预览图片失败: {e}")
                 # 预览失败不影响主流程，继续执行
         
-        # 如果有预览消息，使用第一个预览消息的链接
-        if preview_messages:
-            preview_msg_id = preview_messages[0].message_id
-            formatted_id = format_channel_id_for_link(settings.channels.comic_preview_channel_id)
-            resource.preview_url = f"https://t.me/c/{formatted_id}/{preview_msg_id}"
-        else:
-            resource.preview_url = deep_link
-        
-        for order, file_id in enumerate(stored_file_ids, start=1):
-            session.add(
-                ComicFile(
-                    resource_id=resource.id,
-                    file_id=file_id,
-                    order=order,
+            # 如果有预览消息，使用第一个预览消息的链接并保存 message_id
+            if preview_messages:
+                preview_msg_id = preview_messages[0].message_id
+                resource.preview_message_id = preview_msg_id
+                formatted_id = format_channel_id_for_link(settings.channels.comic_preview_channel_id)
+                resource.preview_url = f"https://t.me/c/{formatted_id}/{preview_msg_id}"
+            else:
+                resource.preview_url = deep_link
+            
+            for order, file_data in enumerate(stored_file_ids, start=1):
+                if isinstance(file_data, tuple):
+                    file_id, message_id = file_data
+                else:
+                    file_id = file_data
+                    message_id = None
+                session.add(
+                    ComicFile(
+                        resource_id=resource.id,
+                        file_id=file_id,
+                        order=order,
+                        storage_message_id=message_id,
+                    )
                 )
-            )
 
         session.flush()
         logger.info(f"✅ 漫画创建成功: id={resource.id}, title={title}, deep_link={deep_link}")
@@ -637,7 +781,10 @@ def extract_images_from_archive(archive_path: Path, archive_type: str) -> tuple[
     try:
         if archive_type == 'zip':
             with zipfile.ZipFile(archive_path, 'r') as zip_ref:
-                for member in zip_ref.namelist():
+                namelist = zip_ref.namelist()
+                logger.info(f"ZIP 文件包含 {len(namelist)} 个文件")
+                image_count = 0
+                for member in namelist:
                     member_path = Path(member)
                     if member_path.suffix.lower() in image_extensions:
                         # 提取到临时目录
@@ -645,16 +792,127 @@ def extract_images_from_archive(archive_path: Path, archive_type: str) -> tuple[
                         full_path = Path(extracted_dir) / member_path
                         if full_path.exists() and full_path.is_file():
                             images.append(full_path)
-        elif archive_type == 'rar' and RAR_SUPPORT:
-            with rarfile.RarFile(archive_path, 'r') as rar_ref:
-                for member in rar_ref.namelist():
-                    member_path = Path(member)
-                    if member_path.suffix.lower() in image_extensions:
-                        # 提取到临时目录
-                        rar_ref.extract(member, extracted_dir)
-                        full_path = Path(extracted_dir) / member_path
-                        if full_path.exists() and full_path.is_file():
-                            images.append(full_path)
+                            image_count += 1
+                logger.info(f"ZIP 文件解压完成：成功提取 {image_count} 张图片")
+        elif archive_type == 'rar':
+            # 优先使用系统命令解压 RAR 文件，更可靠
+            import subprocess
+            import shutil as shutil_module
+            
+            # 尝试使用 unar 或 unrar 命令（跨平台支持）
+            unar_cmd = None
+            # 在 Linux 上，优先尝试 unrar，然后是 unar
+            # 在 macOS 上，优先尝试 unar，然后是 unrar
+            import platform
+            system = platform.system().lower()
+            if system == 'linux':
+                cmd_order = ['unrar', 'unar']
+            else:  # macOS, Windows 等
+                cmd_order = ['unar', 'unrar']
+            
+            for cmd in cmd_order:
+                try:
+                    result = subprocess.run(
+                        [cmd, '--version'] if cmd == 'unar' else [cmd],
+                        capture_output=True,
+                        timeout=5,
+                        text=True
+                    )
+                    unar_cmd = cmd
+                    logger.info(f"找到解压工具: {cmd} (系统: {system})")
+                    break
+                except (FileNotFoundError, subprocess.TimeoutExpired):
+                    continue
+            
+            if unar_cmd:
+                # 使用系统命令解压
+                try:
+                    logger.info(f"使用 {unar_cmd} 解压 RAR 文件: {archive_path}")
+                    if unar_cmd == 'unar':
+                        # unar 命令格式: unar -o output_dir file.rar
+                        result = subprocess.run(
+                            [unar_cmd, '-o', extracted_dir, str(archive_path)],
+                            capture_output=True,
+                            timeout=300,  # 5分钟超时
+                            text=True,
+                            check=True
+                        )
+                    else:  # unrar
+                        # unrar 命令格式: unrar x file.rar output_dir/
+                        result = subprocess.run(
+                            [unar_cmd, 'x', '-y', str(archive_path), f'{extracted_dir}/'],
+                            capture_output=True,
+                            timeout=300,
+                            text=True,
+                            check=True
+                        )
+                    
+                    logger.info(f"{unar_cmd} 解压成功")
+                    
+                    # 扫描解压后的文件
+                    for root, dirs, files in os.walk(extracted_dir):
+                        for file in files:
+                            file_path = Path(root) / file
+                            if file_path.suffix.lower() in image_extensions:
+                                if file_path.exists() and file_path.is_file() and file_path.stat().st_size > 0:
+                                    images.append(file_path)
+                    
+                    image_count = len(images)
+                    logger.info(f"RAR 文件解压完成：成功提取 {image_count} 张图片")
+                    
+                    if image_count == 0:
+                        raise ValueError("RAR 文件中未找到图片文件")
+                        
+                except subprocess.CalledProcessError as e:
+                    error_msg = e.stderr if e.stderr else e.stdout if e.stdout else str(e)
+                    logger.error(f"{unar_cmd} 解压失败: {error_msg}")
+                    raise ValueError(f"使用 {unar_cmd} 解压 RAR 文件失败: {error_msg}")
+                except subprocess.TimeoutExpired:
+                    raise ValueError(f"解压 RAR 文件超时（超过 5 分钟）")
+                except Exception as e:
+                    logger.error(f"解压 RAR 文件时出错: {e}")
+                    raise ValueError(f"解压 RAR 文件失败: {str(e)}")
+            elif RAR_SUPPORT:
+                # 回退到 rarfile 库（作为备用方案）
+                logger.warning("未找到系统解压工具，使用 rarfile 库（可能不稳定）")
+                try:
+                    with rarfile.RarFile(archive_path, 'r') as rar_ref:
+                        try:
+                            namelist = rar_ref.namelist()
+                        except Exception as e:
+                            raise ValueError(f"无法读取 RAR 文件列表: {str(e)}。建议安装 unar 工具: brew install unar")
+                        
+                        if not namelist:
+                            raise ValueError("RAR 文件为空：无法读取文件列表")
+                        
+                        logger.info(f"RAR 文件包含 {len(namelist)} 个文件")
+                        image_count = 0
+                        for member in namelist:
+                            member_path = Path(member)
+                            if member_path.suffix.lower() in image_extensions:
+                                try:
+                                    # 尝试使用 open 方法直接读取（更可靠）
+                                    with rar_ref.open(member) as f:
+                                        content = f.read()
+                                        if content:
+                                            full_path = Path(extracted_dir) / member_path
+                                            full_path.parent.mkdir(parents=True, exist_ok=True)
+                                            with open(full_path, 'wb') as out:
+                                                out.write(content)
+                                            if full_path.exists() and full_path.stat().st_size > 0:
+                                                images.append(full_path)
+                                                image_count += 1
+                                except Exception as e:
+                                    logger.warning(f"解压文件 {member} 失败: {e}")
+                                    continue
+                        
+                        if image_count == 0:
+                            raise ValueError("RAR 文件中未找到图片文件或所有文件解压失败。建议安装 unar 工具: brew install unar")
+                        logger.info(f"使用 rarfile 库解压完成：成功提取 {image_count} 张图片")
+                except Exception as e:
+                    raise ValueError(f"解压 RAR 文件失败: {str(e)}。建议安装 unar 工具: brew install unar")
+            else:
+                raise ValueError("无法解压 RAR 文件：未找到解压工具。请安装 unar: brew install unar 或 unrar 工具")
         else:
             raise HTTPException(status_code=400, detail=f"不支持的压缩包格式: {archive_type}")
     except Exception as e:
@@ -697,11 +955,33 @@ async def upload_comic_archive(
     else:
         raise HTTPException(status_code=400, detail="仅支持 zip 和 rar 格式")
     
-    # 保存压缩包到临时文件
-    archive_content = await archive.read()
+    # 保存压缩包到临时文件（流式处理，避免大文件内存溢出）
+    logger.info(f"开始接收压缩包: {archive.filename}, 大小: {archive.size if hasattr(archive, 'size') else '未知'}")
     with tempfile.NamedTemporaryFile(delete=False, suffix=f".{archive_type}") as tmp_archive:
-        tmp_archive.write(archive_content)
         tmp_archive_path = Path(tmp_archive.name)
+        # 流式读取，避免一次性加载到内存
+        chunk_size = 1024 * 1024  # 1MB chunks
+        total_size = 0
+        max_size = 500 * 1024 * 1024  # 500MB 限制
+        while True:
+            chunk = await archive.read(chunk_size)
+            if not chunk:
+                break
+            total_size += len(chunk)
+            if total_size > max_size:
+                raise HTTPException(status_code=413, detail=f"文件大小超过限制 ({max_size / 1024 / 1024:.0f}MB)")
+            tmp_archive.write(chunk)
+            tmp_archive.flush()  # 立即刷新缓冲区
+        
+        # 确保所有数据都写入磁盘
+        tmp_archive.flush()
+        os.fsync(tmp_archive.fileno())  # 强制同步到磁盘
+        logger.info(f"压缩包接收完成: {archive.filename}, 实际大小: {total_size / 1024 / 1024:.2f}MB")
+        
+        # 验证文件是否完整
+        actual_file_size = tmp_archive_path.stat().st_size
+        if actual_file_size != total_size:
+            raise HTTPException(status_code=400, detail=f"文件写入不完整: 期望 {total_size} 字节，实际 {actual_file_size} 字节")
     
     extracted_dir = None
     try:
@@ -710,25 +990,51 @@ async def upload_comic_archive(
         if not image_files:
             raise HTTPException(status_code=400, detail="压缩包中未找到图片文件")
         
-        # 发送所有图片到存储频道（逐个发送获取 file_id）
-        stored_file_ids: list[str] = []
-        for img_path in image_files:
-            try:
+        # 发送所有图片到存储频道（使用媒体组批量发送，每10张一组）
+        stored_file_ids: list[tuple[str, int]] = []
+        # Telegram 限制：媒体组最多10个文件
+        chunk_size_media = 10
+        for i in range(0, len(image_files), chunk_size_media):
+            chunk = image_files[i:i + chunk_size_media]
+            media_group = []
+            for img_path in chunk:
                 with open(img_path, 'rb') as f:
                     img_content = f.read()
                 buffer = BufferedInputFile(img_content, filename=img_path.name)
-                message = await admin_bot.send_photo(
+                media_group.append(InputMediaPhoto(media=buffer))
+            
+            try:
+                # 使用媒体组批量发送
+                messages = await admin_bot.send_media_group(
                     settings.channels.storage_channel_id,
-                    photo=buffer,
+                    media=media_group,
                 )
-                if not message.photo:
-                    raise HTTPException(status_code=500, detail=f"无法获取文件 ID: {img_path.name}")
-                stored_file_ids.append(message.photo[-1].file_id)
+                # 从返回的消息中提取 file_id 和 message_id
+                for message in messages:
+                    if message.photo:
+                        stored_file_ids.append((message.photo[-1].file_id, message.message_id))
+                logger.info(f"成功发送媒体组: {len(messages)} 张图片")
+                # 每组之间稍作延迟，避免触发 Flood control
+                if i + chunk_size_media < len(image_files):
+                    await asyncio.sleep(0.5)
+            except TelegramRetryAfter as e:
+                wait_time = e.retry_after + 1
+                logger.warning(f"触发 Flood control，等待 {wait_time} 秒")
+                await asyncio.sleep(wait_time)
+                # 重试发送这一组
+                messages = await admin_bot.send_media_group(
+                    settings.channels.storage_channel_id,
+                    media=media_group,
+                )
+                for message in messages:
+                    if message.photo:
+                        stored_file_ids.append((message.photo[-1].file_id, message.message_id))
             except Exception as e:
-                logger.error(f"发送图片失败 {img_path.name}: {e}")
-                raise HTTPException(status_code=500, detail=f"发送图片失败: {img_path.name}")
+                logger.error(f"发送媒体组失败: {e}")
+                raise HTTPException(status_code=500, detail=f"发送图片失败: {str(e)}")
         
-        cover_file_id = stored_file_ids[0]
+        # 提取 file_id（如果是元组则取第一个元素）
+        cover_file_id = stored_file_ids[0][0] if isinstance(stored_file_ids[0], tuple) else stored_file_ids[0]
         bot_username = await get_bot_username()
         
         with db_session() as session:
@@ -749,7 +1055,6 @@ async def upload_comic_archive(
             preview_messages = []
             if preview_file_ids:
                 try:
-                    from aiogram.types import InputMediaPhoto
                     # 第一张图片添加caption（包含超链接），其他图片不添加caption
                     media_group = []
                     for idx, file_id in enumerate(preview_file_ids):
@@ -767,20 +1072,27 @@ async def upload_comic_archive(
                     logger.error(f"发送预览图片失败: {e}")
                     # 预览失败不影响主流程，继续执行
             
-            # 如果有预览消息，使用第一个预览消息的链接
+            # 如果有预览消息，使用第一个预览消息的链接并保存 message_id
             if preview_messages:
                 preview_msg_id = preview_messages[0].message_id
+                resource.preview_message_id = preview_msg_id
                 formatted_id = format_channel_id_for_link(settings.channels.comic_preview_channel_id)
                 resource.preview_url = f"https://t.me/c/{formatted_id}/{preview_msg_id}"
             else:
                 resource.preview_url = deep_link
             
-            for order, file_id in enumerate(stored_file_ids, start=1):
+            for order, file_data in enumerate(stored_file_ids, start=1):
+                if isinstance(file_data, tuple):
+                    file_id, message_id = file_data
+                else:
+                    file_id = file_data
+                    message_id = None
                 session.add(
                     ComicFile(
                         resource_id=resource.id,
                         file_id=file_id,
                         order=order,
+                        storage_message_id=message_id,
                     )
                 )
             
@@ -815,145 +1127,315 @@ async def batch_upload_comic_archives(
     preview_count: Annotated[int, Form()] = 5,
 ):
     """批量上传压缩包并自动解压、发送到存储频道和预览频道"""
-    if not archives:
-        raise HTTPException(status_code=400, detail="至少上传一个压缩包")
-    
-    results = []
-    for archive in archives:
-        if not archive.filename:
-            continue
+    try:
+        logger.info(f"收到批量上传请求: {len(archives) if archives else 0} 个文件")
+        if not archives:
+            logger.error("批量上传请求：没有文件")
+            raise HTTPException(status_code=400, detail="至少上传一个压缩包")
         
-        # 判断压缩包类型
-        filename_lower = archive.filename.lower()
-        if filename_lower.endswith('.zip'):
-            archive_type = 'zip'
-        elif filename_lower.endswith('.rar'):
-            if not RAR_SUPPORT:
-                logger.warning(f"跳过 {archive.filename}: RAR 格式需要安装 rarfile 库")
-                continue
-            archive_type = 'rar'
-        else:
-            logger.warning(f"跳过 {archive.filename}: 仅支持 zip 和 rar 格式")
-            continue
+        # 记录文件信息
+        for idx, archive in enumerate(archives):
+            if archive.filename:
+                logger.info(f"文件 {idx+1}: {archive.filename}, 大小: {archive.size if hasattr(archive, 'size') else '未知'}")
         
-        # 使用文件名（去掉扩展名）作为标题
-        title = Path(archive.filename).stem
-        
-        # 保存压缩包到临时文件
-        archive_content = await archive.read()
-        with tempfile.NamedTemporaryFile(delete=False, suffix=f".{archive_type}") as tmp_archive:
-            tmp_archive.write(archive_content)
-            tmp_archive_path = Path(tmp_archive.name)
-        
-        extracted_dir = None
-        try:
-            # 解压并提取图片
-            image_files, extracted_dir = extract_images_from_archive(tmp_archive_path, archive_type)
-            if not image_files:
-                logger.warning(f"跳过 {archive.filename}: 压缩包中未找到图片文件")
-                continue
-            
-            # 发送所有图片到存储频道（逐个发送获取 file_id）
-            stored_file_ids: list[str] = []
-            for img_path in image_files:
-                try:
-                    with open(img_path, 'rb') as f:
-                        img_content = f.read()
-                    buffer = BufferedInputFile(img_content, filename=img_path.name)
-                    message = await admin_bot.send_photo(
-                        settings.channels.storage_channel_id,
-                        photo=buffer,
-                    )
-                    if not message.photo:
-                        raise HTTPException(status_code=500, detail=f"无法获取文件 ID: {img_path.name}")
-                    stored_file_ids.append(message.photo[-1].file_id)
-                except Exception as e:
-                    logger.error(f"发送图片失败 {img_path.name}: {e}")
-                    raise HTTPException(status_code=500, detail=f"发送图片失败: {img_path.name}")
-            
-            cover_file_id = stored_file_ids[0]
-            bot_username = await get_bot_username()
-            
-            with db_session() as session:
-                resource = Resource(
-                    title=title,
-                    type="comic",
-                    cover_file_id=cover_file_id,
-                    is_vip=is_vip,
-                    preview_url=None,
+        # 检查 RAR 支持
+        if not RAR_SUPPORT:
+            rar_files = [f.filename for f in archives if f.filename and f.filename.lower().endswith('.rar')]
+            if rar_files:
+                logger.error(f"检测到 RAR 文件但未安装 rarfile 库: {rar_files}")
+                raise HTTPException(
+                    status_code=400, 
+                    detail=f"RAR 格式需要安装 rarfile 库。请运行: pip install rarfile"
                 )
-                session.add(resource)
-                session.flush()
-                
-                deep_link = f"https://t.me/{bot_username}?start=comic_{resource.id}"
-                
-                # 发送前几张图片到预览频道（作为一条媒体组消息），第一张图片的caption包含超链接
-                preview_file_ids = stored_file_ids[:min(preview_count, len(stored_file_ids))]
-                preview_messages = []
-                if preview_file_ids:
+        
+        results = []
+        processed_count = 0
+        skipped_count = 0
+        for archive in archives:
+            processed_count += 1
+            logger.info(f"处理文件 {processed_count}/{len(archives)}: {archive.filename if archive.filename else '无文件名'}")
+            if not archive.filename:
+                logger.warning(f"文件 {processed_count}: 跳过（无文件名）")
+                skipped_count += 1
+                continue
+            
+            # 判断压缩包类型
+            filename_lower = archive.filename.lower()
+            if filename_lower.endswith('.zip'):
+                archive_type = 'zip'
+            elif filename_lower.endswith('.rar'):
+                if not RAR_SUPPORT:
+                    logger.warning(f"跳过 {archive.filename}: RAR 格式需要安装 rarfile 库")
+                    skipped_count += 1
+                    continue
+                archive_type = 'rar'
+            else:
+                logger.warning(f"跳过 {archive.filename}: 仅支持 zip 和 rar 格式（当前扩展名: {Path(archive.filename).suffix}）")
+                skipped_count += 1
+                continue
+            
+            # 使用文件名（去掉扩展名）作为标题
+            title = Path(archive.filename).stem
+            
+            # 保存压缩包到临时文件（流式处理，避免大文件内存溢出）
+            logger.info(f"开始接收压缩包: {archive.filename}, 大小: {archive.size if hasattr(archive, 'size') else '未知'}")
+            tmp_archive_path = None
+            file_too_large = False
+            total_size = 0
+            try:
+                with tempfile.NamedTemporaryFile(delete=False, suffix=f".{archive_type}") as tmp_archive:
+                    tmp_archive_path = Path(tmp_archive.name)
+                    # 流式读取，避免一次性加载到内存
+                    chunk_size = 1024 * 1024  # 1MB chunks
+                    max_size = 500 * 1024 * 1024  # 500MB 限制
+                    chunk_count = 0
+                    while True:
+                        chunk = await archive.read(chunk_size)
+                        if not chunk:
+                            break
+                        chunk_count += 1
+                        total_size += len(chunk)
+                        if total_size > max_size:
+                            logger.warning(f"跳过 {archive.filename}: 文件大小超过限制 ({max_size / 1024 / 1024:.0f}MB)")
+                            file_too_large = True
+                            # 跳出循环，跳过这个文件
+                            break
+                        tmp_archive.write(chunk)
+                        tmp_archive.flush()  # 立即刷新缓冲区，确保数据写入磁盘
+                        # 每 10MB 记录一次进度
+                        if chunk_count % 10 == 0:
+                            logger.info(f"接收进度 {archive.filename}: {total_size / 1024 / 1024:.2f}MB")
+                    
+                    # 确保所有数据都写入磁盘
+                    tmp_archive.flush()
+                    os.fsync(tmp_archive.fileno())  # 强制同步到磁盘
+                    
+                    if total_size == 0:
+                        logger.error(f"跳过 {archive.filename}: 文件为空（可能文件数据未正确传输）")
+                        file_too_large = True  # 使用这个标志来跳过空文件
+                        skipped_count += 1
+                    else:
+                        logger.info(f"压缩包接收完成: {archive.filename}, 实际大小: {total_size / 1024 / 1024:.2f}MB")
+                        # 验证文件是否完整（检查文件大小是否匹配）
+                        if hasattr(archive, 'size') and archive.size and total_size != archive.size:
+                            logger.warning(f"文件大小不匹配: {archive.filename}, 期望: {archive.size}, 实际: {total_size}")
+                        # 验证文件是否真的存在且可读
+                        if tmp_archive_path.exists():
+                            actual_file_size = tmp_archive_path.stat().st_size
+                            if actual_file_size != total_size:
+                                logger.error(f"文件写入不完整: {archive.filename}, 期望: {total_size}, 实际文件大小: {actual_file_size}")
+                                file_too_large = True
+                                skipped_count += 1
+            except Exception as e:
+                logger.error(f"接收压缩包 {archive.filename} 时出错: {e}", exc_info=True)
+                if tmp_archive_path and tmp_archive_path.exists():
                     try:
-                        from aiogram.types import InputMediaPhoto
-                        # 第一张图片添加caption（包含超链接），其他图片不添加caption
-                        media_group = []
-                        for idx, file_id in enumerate(preview_file_ids):
-                            if idx == 0:
-                                caption = f'📖 <a href="{deep_link}">{title}</a>'
-                                media_group.append(InputMediaPhoto(media=file_id, caption=caption, parse_mode="HTML"))
-                            else:
-                                media_group.append(InputMediaPhoto(media=file_id))
+                        tmp_archive_path.unlink()
+                    except:
+                        pass
+                continue
+            
+            # 如果文件超过大小限制，跳过处理
+            if file_too_large:
+                if tmp_archive_path and tmp_archive_path.exists():
+                    try:
+                        tmp_archive_path.unlink()
+                    except:
+                        pass
+                skipped_count += 1
+                continue
+            
+            if not tmp_archive_path or not tmp_archive_path.exists():
+                logger.warning(f"跳过 {archive.filename}: 临时文件不存在")
+                skipped_count += 1
+                continue
+            
+            # 在解压前验证文件完整性
+            try:
+                actual_size = tmp_archive_path.stat().st_size
+                if actual_size == 0:
+                    logger.error(f"跳过 {archive.filename}: 临时文件大小为 0")
+                    skipped_count += 1
+                    if tmp_archive_path.exists():
+                        try:
+                            tmp_archive_path.unlink()
+                        except:
+                            pass
+                    continue
+                if total_size > 0 and actual_size != total_size:
+                    logger.error(f"跳过 {archive.filename}: 文件写入不完整，期望: {total_size} 字节，实际: {actual_size} 字节")
+                    skipped_count += 1
+                    if tmp_archive_path.exists():
+                        try:
+                            tmp_archive_path.unlink()
+                        except:
+                            pass
+                    continue
+                logger.info(f"临时文件验证通过: {archive.filename}, 大小: {actual_size / 1024 / 1024:.2f}MB")
+            except Exception as e:
+                logger.error(f"验证临时文件失败 {archive.filename}: {e}")
+                skipped_count += 1
+                continue
+            
+            extracted_dir = None
+            try:
+                # 解压并提取图片
+                logger.info(f"开始解压: {archive.filename}, 文件大小: {tmp_archive_path.stat().st_size} 字节")
+                image_files, extracted_dir = extract_images_from_archive(tmp_archive_path, archive_type)
+                if not image_files:
+                    logger.warning(f"跳过 {archive.filename}: 压缩包中未找到图片文件（解压后的文件列表为空）")
+                    skipped_count += 1
+                    continue
+                logger.info(f"解压成功: {archive.filename}, 找到 {len(image_files)} 张图片")
+                
+                # 发送所有图片到存储频道（使用媒体组批量发送，每10张一组）
+                stored_file_ids: list[tuple[str, int]] = []
+                # Telegram 限制：媒体组最多10个文件
+                media_chunk_size = 10
+                for i in range(0, len(image_files), media_chunk_size):
+                    chunk = image_files[i:i + media_chunk_size]
+                    media_group = []
+                    for img_path in chunk:
+                        with open(img_path, 'rb') as f:
+                            img_content = f.read()
+                        buffer = BufferedInputFile(img_content, filename=img_path.name)
+                        media_group.append(InputMediaPhoto(media=buffer))
+                    
+                    try:
+                        # 使用媒体组批量发送
                         messages = await admin_bot.send_media_group(
-                            settings.channels.comic_preview_channel_id,
+                            settings.channels.storage_channel_id,
                             media=media_group,
                         )
-                        preview_messages.extend(messages)
-                    except Exception as e:
-                        logger.error(f"发送预览图片失败: {e}")
-                
-                if preview_messages:
-                    preview_msg_id = preview_messages[0].message_id
-                    formatted_id = format_channel_id_for_link(settings.channels.comic_preview_channel_id)
-                    resource.preview_url = f"https://t.me/c/{formatted_id}/{preview_msg_id}"
-                else:
-                    resource.preview_url = deep_link
-                
-                for order, file_id in enumerate(stored_file_ids, start=1):
-                    session.add(
-                        ComicFile(
-                            resource_id=resource.id,
-                            file_id=file_id,
-                            order=order,
+                        # 从返回的消息中提取 file_id 和 message_id
+                        for message in messages:
+                            if message.photo:
+                                stored_file_ids.append((message.photo[-1].file_id, message.message_id))
+                        logger.info(f"成功发送媒体组: {len(messages)} 张图片")
+                        # 每组之间稍作延迟，避免触发 Flood control
+                        if i + media_chunk_size < len(image_files):
+                            await asyncio.sleep(0.5)
+                    except TelegramRetryAfter as e:
+                        wait_time = e.retry_after + 1
+                        logger.warning(f"触发 Flood control，等待 {wait_time} 秒")
+                        await asyncio.sleep(wait_time)
+                        # 重试发送这一组
+                        messages = await admin_bot.send_media_group(
+                            settings.channels.storage_channel_id,
+                            media=media_group,
                         )
-                    )
+                        for message in messages:
+                            if message.photo:
+                                stored_file_ids.append((message.photo[-1].file_id, message.message_id))
+                    except Exception as e:
+                        logger.error(f"发送媒体组失败: {e}")
+                        raise HTTPException(status_code=500, detail=f"发送图片失败: {str(e)}")
                 
-                session.flush()
-                logger.info(f"✅ 漫画创建成功: id={resource.id}, title={title}, deep_link={deep_link}")
-                # db_session() 上下文管理器会在退出时自动提交
-                results.append(ComicUploadResponse(
-                    id=resource.id,
-                    pages=len(stored_file_ids),
-                    deep_link=deep_link,
-                    preview_link=resource.preview_url,
-                ))
-        except Exception as e:
-            logger.error(f"处理压缩包 {archive.filename} 失败: {e}")
-            # 继续处理下一个，不中断批量上传
-        finally:
-            # 清理临时文件
-            try:
-                if tmp_archive_path.exists():
-                    tmp_archive_path.unlink()
-            except:
-                pass
-            try:
-                if extracted_dir and Path(extracted_dir).exists():
-                    shutil.rmtree(extracted_dir)
-            except:
-                pass
-    
-    if not results:
-        raise HTTPException(status_code=400, detail="没有成功上传任何压缩包")
-    
-    return results
+                # 提取 file_id（如果是元组则取第一个元素）
+                cover_file_id = stored_file_ids[0][0] if isinstance(stored_file_ids[0], tuple) else stored_file_ids[0]
+                bot_username = await get_bot_username()
+                
+                with db_session() as session:
+                    resource = Resource(
+                        title=title,
+                        type="comic",
+                        cover_file_id=cover_file_id,
+                        is_vip=is_vip,
+                        preview_url=None,
+                    )
+                    session.add(resource)
+                    session.flush()
+                    
+                    deep_link = f"https://t.me/{bot_username}?start=comic_{resource.id}"
+                    
+                    # 发送前几张图片到预览频道（作为一条媒体组消息），第一张图片的caption包含超链接
+                    # 提取 file_id（如果是元组则取第一个元素）
+                    preview_file_ids = [
+                        (item[0] if isinstance(item, tuple) else item) 
+                        for item in stored_file_ids[:min(preview_count, len(stored_file_ids))]
+                    ]
+                    preview_messages = []
+                    if preview_file_ids:
+                        try:
+                            # 第一张图片添加caption（包含超链接），其他图片不添加caption
+                            media_group = []
+                            for idx, file_id in enumerate(preview_file_ids):
+                                if idx == 0:
+                                    caption = f'📖 <a href="{deep_link}">{title}</a>'
+                                    media_group.append(InputMediaPhoto(media=file_id, caption=caption, parse_mode="HTML"))
+                                else:
+                                    media_group.append(InputMediaPhoto(media=file_id))
+                            messages = await admin_bot.send_media_group(
+                                settings.channels.comic_preview_channel_id,
+                                media=media_group,
+                            )
+                            preview_messages.extend(messages)
+                        except Exception as e:
+                            logger.error(f"发送预览图片失败: {e}")
+                    
+                    if preview_messages:
+                        preview_msg_id = preview_messages[0].message_id
+                        resource.preview_message_id = preview_msg_id
+                        formatted_id = format_channel_id_for_link(settings.channels.comic_preview_channel_id)
+                        resource.preview_url = f"https://t.me/c/{formatted_id}/{preview_msg_id}"
+                    else:
+                        resource.preview_url = deep_link
+                    
+                    for order, file_data in enumerate(stored_file_ids, start=1):
+                        if isinstance(file_data, tuple):
+                            file_id, message_id = file_data
+                        else:
+                            file_id = file_data
+                            message_id = None
+                        session.add(
+                            ComicFile(
+                                resource_id=resource.id,
+                                file_id=file_id,
+                                order=order,
+                                storage_message_id=message_id,
+                            )
+                        )
+                    
+                    session.flush()
+                    logger.info(f"✅ 漫画创建成功: id={resource.id}, title={title}, deep_link={deep_link}")
+                    # db_session() 上下文管理器会在退出时自动提交
+                    results.append(ComicUploadResponse(
+                        id=resource.id,
+                        pages=len(stored_file_ids),
+                        deep_link=deep_link,
+                        preview_link=resource.preview_url,
+                    ))
+            except Exception as e:
+                logger.error(f"处理压缩包 {archive.filename} 失败: {e}", exc_info=True)
+                # 继续处理下一个，不中断批量上传
+            finally:
+                # 清理临时文件
+                try:
+                    if tmp_archive_path and tmp_archive_path.exists():
+                        tmp_archive_path.unlink()
+                except:
+                    pass
+                try:
+                    if extracted_dir and Path(extracted_dir).exists():
+                        shutil.rmtree(extracted_dir)
+                except:
+                    pass
+        
+        if not results:
+            logger.error(f"批量上传：没有成功上传任何压缩包（处理: {processed_count}, 跳过: {skipped_count}, 成功: {len(results)}）")
+            raise HTTPException(
+                status_code=400, 
+                detail=f"没有成功上传任何压缩包。处理了 {processed_count} 个文件，跳过了 {skipped_count} 个文件。请检查文件格式、大小和内容。"
+            )
+        
+        logger.info(f"批量上传完成: 成功 {len(results)} 个文件")
+        return results
+    except HTTPException:
+        # 重新抛出 HTTP 异常
+        raise
+    except Exception as e:
+        logger.error(f"批量上传处理失败: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"批量上传处理失败: {str(e)}")
 
 
 @app.get("/resources/comics/{resource_id}/files", response_model=ComicFilesResponse)
@@ -1066,19 +1548,37 @@ async def list_users(
                 | (User.user_id.cast(String).ilike(search_term))
             )
         users = query.order_by(User.created_at.desc()).offset(skip).limit(limit).all()
-        return [
-            UserResponse(
-                user_id=u.user_id,
-                first_name=u.first_name,
-                username=u.username,
-                vip_expiry=u.vip_expiry,
-                is_blocked=u.is_blocked,
-                usage_quota=u.usage_quota,
-                created_at=u.created_at,
-                updated_at=u.updated_at,
+    return [
+        UserResponse(
+            user_id=u.user_id,
+            first_name=u.first_name,
+            username=u.username,
+            vip_expiry=u.vip_expiry,
+            is_blocked=u.is_blocked,
+            usage_quota=u.usage_quota,
+            created_at=u.created_at,
+            updated_at=u.updated_at,
+        )
+        for u in users
+    ]
+
+
+@app.get("/users/count")
+async def get_users_count(
+    _: Annotated[str, Depends(require_admin)],
+    search: Optional[str] = Query(None),
+):
+    with db_session() as session:
+        query = session.query(User)
+        if search:
+            search_term = f"%{search}%"
+            query = query.filter(
+                (User.first_name.ilike(search_term))
+                | (User.username.ilike(search_term))
+                | (User.user_id.cast(String).ilike(search_term))
             )
-            for u in users
-        ]
+        count = query.count()
+    return {"count": count}
 
 
 @app.get("/users/{user_id}", response_model=UserResponse)

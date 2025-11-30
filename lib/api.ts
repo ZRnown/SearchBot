@@ -61,8 +61,18 @@ async function handleJson<T>(response: Response): Promise<T> {
   return (await response.json()) as T
 }
 
-export async function fetchResources(filter: "all" | "novel" | "audio" | "comic" = "all") {
-  const query = filter !== "all" ? `?type=${filter}` : ""
+export async function fetchResources(
+  filter: "all" | "novel" | "audio" | "comic" = "all",
+  skip: number = 0,
+  limit: number = 50
+) {
+  const params = new URLSearchParams()
+  if (filter !== "all") {
+    params.append("type", filter)
+  }
+  params.append("skip", skip.toString())
+  params.append("limit", limit.toString())
+  const query = params.toString() ? `?${params.toString()}` : ""
   const response = await fetch(`/api/resources${query}`, { cache: "no-store" })
   const data = await handleJson<any[]>(response)
   return data.map((item) => ({
@@ -176,6 +186,8 @@ export async function uploadComicArchive(payload: {
   const response = await fetch("/api/resources/comics/archive", {
     method: "POST",
     body: form,
+    // 增加超时时间以支持大文件上传（5分钟）
+    signal: AbortSignal.timeout(5 * 60 * 1000),
   })
   const data = await handleJson<any>(response)
   return {
@@ -200,6 +212,8 @@ export async function batchUploadComicArchives(payload: {
   const response = await fetch("/api/resources/comics/batch-archive", {
     method: "POST",
     body: form,
+    // 增加超时时间以支持大文件批量上传（10分钟）
+    signal: AbortSignal.timeout(10 * 60 * 1000),
   })
   const data = await handleJson<any[]>(response)
   return data.map((item) => ({
@@ -257,8 +271,14 @@ export async function fetchSettings() {
   } as SettingsPayload
 }
 
-export async function fetchUsers(search?: string) {
-  const query = search ? `?search=${encodeURIComponent(search)}` : ""
+export async function fetchUsers(search?: string, skip: number = 0, limit: number = 50) {
+  const params = new URLSearchParams()
+  if (search) {
+    params.append("search", search)
+  }
+  params.append("skip", skip.toString())
+  params.append("limit", limit.toString())
+  const query = params.toString() ? `?${params.toString()}` : ""
   const response = await fetch(`/api/users${query}`, { cache: "no-store" })
   const data = await handleJson<any[]>(response)
   return data.map((item) => ({

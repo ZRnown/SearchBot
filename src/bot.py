@@ -427,19 +427,37 @@ async def send_comic_page(
                     await query.answer("请先开通 VIP", show_alert=True)
                 return
 
-        # VIP用户：发送所有图片
-        all_files = repo.list_comic_files(resource_id, limit=total_images, offset=0)
-        # 每10张图片一组发送
-        for chunk in chunk_list(all_files, 10):
+        # 分页发送图片，每页显示 page_size 张图片
+        page_size = settings.bot.page_size
+        total_pages = (total_images + page_size - 1) // page_size  # 向上取整
+        
+        # 计算当前页的偏移量
+        offset = (page - 1) * page_size
+        page_files = repo.list_comic_files(resource_id, limit=page_size, offset=offset)
+        
+        if not page_files:
+            await bot.send_message(chat_id, "该页没有内容。")
+            if query:
+                await query.answer()
+            return
+        
+        # 发送当前页的图片（每10张一组）
+        for chunk in chunk_list(page_files, 10):
             media_group = [InputMediaPhoto(media=item.file_id) for item in chunk]
             await bot.send_media_group(chat_id, media_group)
         
-        # 发送汇总信息
+        # 发送分页导航按钮
+        keyboard = build_comic_nav_keyboard(resource_id, page, total_pages)
+        link_preview_options = LinkPreviewOptions(is_disabled=True)
+        
         await bot.send_message(
             chat_id,
-            f"{resource.title}\n"
-            f"合集图片数：{total_images}\n"
-            f"当前第1页/共1页",
+            f"📖 <b>{resource.title}</b>\n"
+            f"📊 合集图片数：{total_images}\n"
+            f"📄 当前第 {page} 页 / 共 {total_pages} 页",
+            reply_markup=keyboard,
+            parse_mode="HTML",
+            link_preview_options=link_preview_options,
         )
     if query:
         await query.answer()
@@ -466,6 +484,15 @@ async def main():
             print(f"[Bot] 机器人信息: @{me.username} (ID: {me.id})")
         except Exception as e:
             print(f"[Bot] ❌ 无法获取机器人信息: {e}")
+            print(f"[Bot] ⚠️  可能的原因：")
+            print(f"[Bot]    1. BOT_TOKEN 无效或已过期")
+            print(f"[Bot]    2. 机器人已被删除或禁用")
+            print(f"[Bot]    3. Token 格式不正确")
+            print(f"[Bot] 💡 解决方案：")
+            print(f"[Bot]    1. 前往 @BotFather 检查机器人状态")
+            print(f"[Bot]    2. 如果机器人不存在，创建新机器人并获取新 token")
+            print(f"[Bot]    3. 如果机器人存在，使用 /revoke 撤销旧 token，然后 /token 获取新 token")
+            print(f"[Bot]    4. 将新 token 更新到 .env 文件中的 BOT_TOKEN")
             raise
         
         dp = Dispatcher()

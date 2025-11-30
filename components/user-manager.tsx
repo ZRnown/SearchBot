@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import React, { useEffect, useState } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
@@ -16,6 +16,14 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Search, Trash2, Edit, Crown, Ban } from "lucide-react"
+import {
+  Pagination,
+  PaginationContent,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from "@/components/ui/pagination"
 import { useToast } from "@/components/ui/use-toast"
 import {
   fetchUsers,
@@ -35,18 +43,33 @@ export function UserManager() {
   const [editingUser, setEditingUser] = useState<UserRecord | null>(null)
   const [deletingUserId, setDeletingUserId] = useState<number | null>(null)
   const [vipLoadingId, setVipLoadingId] = useState<number | null>(null)
+  const [page, setPage] = useState(1)
+  const [totalCount, setTotalCount] = useState(0)
+  const pageSize = 50
   const { toast } = useToast()
 
   useEffect(() => {
     loadUsers()
-  }, [search])
+  }, [search, page])
 
   const loadUsers = async () => {
     try {
       setLoading(true)
-      const data = await fetchUsers(search || undefined)
+      const skip = (page - 1) * pageSize
+      const data = await fetchUsers(search || undefined, skip, pageSize)
       setUsers(data)
       setSelectedIds(new Set())
+      
+      // 获取总数
+      const countParams = new URLSearchParams()
+      if (search) {
+        countParams.append("search", search)
+      }
+      const countResponse = await fetch(`/api/users/count?${countParams.toString()}`)
+      if (countResponse.ok) {
+        const countData = await countResponse.json()
+        setTotalCount(countData.count || 0)
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : "加载失败"
       toast({
@@ -58,6 +81,11 @@ export function UserManager() {
       setLoading(false)
     }
   }
+  
+  // 当搜索改变时，重置到第一页
+  useEffect(() => {
+    setPage(1)
+  }, [search])
 
   const handleSelectAll = (checked: boolean) => {
     if (checked) {
@@ -317,6 +345,65 @@ export function UserManager() {
               </TableBody>
             </Table>
           </div>
+          {totalCount > pageSize && (
+            <div className="mt-4 flex justify-center">
+              <Pagination>
+                <PaginationContent>
+                  <PaginationItem>
+                    <PaginationPrevious
+                      href="#"
+                      onClick={(e) => {
+                        e.preventDefault()
+                        if (page > 1) setPage(page - 1)
+                      }}
+                      className={page === 1 ? "pointer-events-none opacity-50" : ""}
+                    />
+                  </PaginationItem>
+                  {Array.from({ length: Math.ceil(totalCount / pageSize) }, (_, i) => i + 1)
+                    .filter((p) => {
+                      // 只显示当前页附近的页码
+                      return p === 1 || p === Math.ceil(totalCount / pageSize) || Math.abs(p - page) <= 2
+                    })
+                    .map((p, idx, arr) => {
+                      // 如果当前页码和下一个页码之间有间隔，显示省略号
+                      const prev = arr[idx - 1]
+                      const showEllipsis = prev && p - prev > 1
+                      return (
+                        <React.Fragment key={p}>
+                          {showEllipsis && (
+                            <PaginationItem>
+                              <span className="px-2">...</span>
+                            </PaginationItem>
+                          )}
+                          <PaginationItem>
+                            <PaginationLink
+                              href="#"
+                              onClick={(e) => {
+                                e.preventDefault()
+                                setPage(p)
+                              }}
+                              isActive={p === page}
+                            >
+                              {p}
+                            </PaginationLink>
+                          </PaginationItem>
+                        </React.Fragment>
+                      )
+                    })}
+                  <PaginationItem>
+                    <PaginationNext
+                      href="#"
+                      onClick={(e) => {
+                        e.preventDefault()
+                        if (page < Math.ceil(totalCount / pageSize)) setPage(page + 1)
+                      }}
+                      className={page >= Math.ceil(totalCount / pageSize) ? "pointer-events-none opacity-50" : ""}
+                    />
+                  </PaginationItem>
+                </PaginationContent>
+              </Pagination>
+            </div>
+          )}
         </CardContent>
       </Card>
 

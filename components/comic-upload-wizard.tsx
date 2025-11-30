@@ -650,7 +650,7 @@ export function ComicUploadWizard({ className = "" }: { className?: string } = {
                 <div className="p-4 bg-muted rounded-lg space-y-2">
                   <Label className="text-xs text-muted-foreground">当前跳转链接</Label>
                   <Input value={previewLink} readOnly className="font-mono text-xs" />
-                </div>
+            </div>
 
             <Badge className="bg-success text-success-foreground">
               <Link2 className="h-3 w-3 mr-1" />

@@ -78,6 +78,7 @@ class ComicFile(Base):
     )
     file_id: Mapped[str] = mapped_column(Text, nullable=False)
     order: Mapped[int] = mapped_column(Integer, nullable=False)
+    storage_message_id: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
 
     resource: Mapped[Resource] = relationship("Resource", back_populates="comic_files")
 
@@ -162,6 +163,14 @@ def ensure_schema():
         if "preview_url" not in columns:
             with engine.begin() as conn:
                 conn.execute(text("ALTER TABLE resources ADD COLUMN preview_url VARCHAR(512)"))
+        if "preview_message_id" not in columns:
+            with engine.begin() as conn:
+                conn.execute(text("ALTER TABLE resources ADD COLUMN preview_message_id BIGINT"))
+    if "comic_files" in tables:
+        columns = {col["name"] for col in inspector.get_columns("comic_files")}
+        if "storage_message_id" not in columns:
+            with engine.begin() as conn:
+                conn.execute(text("ALTER TABLE comic_files ADD COLUMN storage_message_id BIGINT"))
 
 
 def init_db():

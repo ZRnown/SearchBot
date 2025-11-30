@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import React, { useEffect, useState } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
@@ -16,6 +16,14 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Book, Headphones, Heart, Crown, Search, ExternalLink, Trash2, Save, Copy, List } from "lucide-react"
+import {
+  Pagination,
+  PaginationContent,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from "@/components/ui/pagination"
 import { deleteResource, fetchResources, type ResourceRecord, updateResource, batchDeleteResources } from "@/lib/api"
 import { useToast } from "@/components/ui/use-toast"
 import { ComicFilesManager } from "./comic-files-manager"
@@ -40,6 +48,9 @@ export function ResourceList() {
   const [search, setSearch] = useState("")
   const [resources, setResources] = useState<ResourceRecord[]>([])
   const [loading, setLoading] = useState(false)
+  const [page, setPage] = useState(1)
+  const [totalCount, setTotalCount] = useState(0)
+  const pageSize = 50
   const [editMap, setEditMap] = useState<
     Record<
       string,
@@ -64,7 +75,8 @@ export function ResourceList() {
     const load = async () => {
       try {
         setLoading(true)
-        const data = await fetchResources(filter)
+        const skip = (page - 1) * pageSize
+        const data = await fetchResources(filter, skip, pageSize)
         if (!ignore) {
           setResources(data)
           const nextMap: typeof editMap = {}
@@ -77,6 +89,14 @@ export function ResourceList() {
             }
           })
           setEditMap(nextMap)
+        }
+        // 获取总数
+        const countResponse = await fetch(`/api/resources/count?${filter !== "all" ? `resource_type=${filter}` : ""}`)
+        if (countResponse.ok) {
+          const countData = await countResponse.json()
+          if (!ignore) {
+            setTotalCount(countData.count || 0)
+          }
         }
       } catch (error) {
         const message = error instanceof Error ? error.message : "加载失败"
@@ -95,13 +115,16 @@ export function ResourceList() {
     return () => {
       ignore = true
     }
-  }, [filter, toast])
+  }, [filter, page, toast])
 
-  const filteredResources = resources.filter((r) => {
-    const matchesType = filter === "all" || r.type === filter
-    const matchesSearch = r.title.toLowerCase().includes(search.toLowerCase())
-    return matchesType && matchesSearch
-  })
+  // 注意：搜索现在在客户端进行，但也可以改为服务端搜索
+  // 由于使用了服务端分页，这里不需要客户端过滤
+  const filteredResources = resources
+  
+  // 当筛选或搜索改变时，重置到第一页
+  useEffect(() => {
+    setPage(1)
+  }, [filter, search])
 
   const handleSelectAll = (checked: boolean) => {
     if (checked) {
@@ -422,6 +445,65 @@ export function ResourceList() {
             </TableBody>
           </Table>
         </div>
+        {totalCount > 0 && totalCount > pageSize && (
+          <div className="mt-4 flex justify-center">
+            <Pagination>
+              <PaginationContent>
+                <PaginationItem>
+                  <PaginationPrevious
+                    href="#"
+                    onClick={(e) => {
+                      e.preventDefault()
+                      if (page > 1) setPage(page - 1)
+                    }}
+                    className={page === 1 ? "pointer-events-none opacity-50" : ""}
+                  />
+                </PaginationItem>
+                {Array.from({ length: Math.ceil(totalCount / pageSize) }, (_, i) => i + 1)
+                  .filter((p) => {
+                    // 只显示当前页附近的页码
+                    return p === 1 || p === Math.ceil(totalCount / pageSize) || Math.abs(p - page) <= 2
+                  })
+                  .map((p, idx, arr) => {
+                    // 如果当前页码和下一个页码之间有间隔，显示省略号
+                    const prev = arr[idx - 1]
+                    const showEllipsis = prev && p - prev > 1
+                    return (
+                      <React.Fragment key={p}>
+                        {showEllipsis && (
+                          <PaginationItem>
+                            <span className="px-2">...</span>
+                          </PaginationItem>
+                        )}
+                        <PaginationItem>
+                          <PaginationLink
+                            href="#"
+                            onClick={(e) => {
+                              e.preventDefault()
+                              setPage(p)
+                            }}
+                            isActive={p === page}
+                          >
+                            {p}
+                          </PaginationLink>
+                        </PaginationItem>
+                      </React.Fragment>
+                    )
+                  })}
+                <PaginationItem>
+                  <PaginationNext
+                    href="#"
+                    onClick={(e) => {
+                      e.preventDefault()
+                      if (page < Math.ceil(totalCount / pageSize)) setPage(page + 1)
+                    }}
+                    className={page >= Math.ceil(totalCount / pageSize) ? "pointer-events-none opacity-50" : ""}
+                  />
+                </PaginationItem>
+              </PaginationContent>
+            </Pagination>
+          </div>
+        )}
       </CardContent>
     </Card>
 

@@ -173,6 +173,15 @@ type RouteHandlerConfig<Route extends AppRouteHandlerRoutes = AppRouteHandlerRou
   type __Unused = __Check
 }
 
+// Validate ../../../app/api/resources/count/route.ts
+{
+  type __IsExpected<Specific extends RouteHandlerConfig<"/api/resources/count">> = Specific
+  const handler = {} as typeof import("../../../app/api/resources/count/route.js")
+  type __Check = __IsExpected<typeof handler>
+  // @ts-ignore
+  type __Unused = __Check
+}
+
 // Validate ../../../app/api/resources/indexed/route.ts
 {
   type __IsExpected<Specific extends RouteHandlerConfig<"/api/resources/indexed">> = Specific
@@ -231,6 +240,15 @@ type RouteHandlerConfig<Route extends AppRouteHandlerRoutes = AppRouteHandlerRou
 {
   type __IsExpected<Specific extends RouteHandlerConfig<"/api/users/batch-delete">> = Specific
   const handler = {} as typeof import("../../../app/api/users/batch-delete/route.js")
+  type __Check = __IsExpected<typeof handler>
+  // @ts-ignore
+  type __Unused = __Check
+}
+
+// Validate ../../../app/api/users/count/route.ts
+{
+  type __IsExpected<Specific extends RouteHandlerConfig<"/api/users/count">> = Specific
+  const handler = {} as typeof import("../../../app/api/users/count/route.js")
   type __Check = __IsExpected<typeof handler>
   // @ts-ignore
   type __Unused = __Check

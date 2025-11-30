@@ -618,6 +618,8 @@ async def upload_comic(
             )
 
         session.flush()
+        logger.info(f"✅ 漫画创建成功: id={resource.id}, title={title}, deep_link={deep_link}")
+        # db_session() 上下文管理器会在退出时自动提交
         return ComicUploadResponse(
             id=resource.id,
             pages=len(stored_file_ids),
@@ -783,6 +785,8 @@ async def upload_comic_archive(
                 )
             
             session.flush()
+            logger.info(f"✅ 漫画创建成功: id={resource.id}, title={title}, deep_link={deep_link}")
+            # db_session() 上下文管理器会在退出时自动提交
             return ComicUploadResponse(
                 id=resource.id,
                 pages=len(stored_file_ids),
@@ -922,6 +926,8 @@ async def batch_upload_comic_archives(
                     )
                 
                 session.flush()
+                logger.info(f"✅ 漫画创建成功: id={resource.id}, title={title}, deep_link={deep_link}")
+                # db_session() 上下文管理器会在退出时自动提交
                 results.append(ComicUploadResponse(
                     id=resource.id,
                     pages=len(stored_file_ids),

@@ -33,6 +33,7 @@ async def handle_start(message: Message):
     if len(payload) > 1 and payload[1].startswith("comic_"):
         resource_id = payload[1].split("comic_", 1)[-1]
         if resource_id:
+            print(f"[Bot] 收到深度链接请求: resource_id={resource_id}, 完整payload={payload[1]}")
             await send_comic_page(
                 chat_id=message.chat.id,
                 user=message.from_user,
@@ -304,10 +305,20 @@ async def send_comic_page(
     page: int,
     query: CallbackQuery | None = None,
 ):
+    print(f"[Bot] send_comic_page: resource_id={resource_id}, user_id={user.id if user else 'None'}")
     with db_session() as session:
         repo = ResourceRepository(session)
         resource = repo.get(resource_id)
-        if not resource or resource.type != "comic":
+        print(f"[Bot] 查询结果: resource={resource}, resource_id={resource.id if resource else 'None'}, type={resource.type if resource else 'None'}")
+        if not resource:
+            print(f"[Bot] ❌ 资源不存在: resource_id={resource_id}")
+            if query:
+                await query.answer("漫画不存在", show_alert=True)
+            else:
+                await bot.send_message(chat_id, "漫画不存在或已下架。")
+            return
+        if resource.type != "comic":
+            print(f"[Bot] ❌ 资源类型不匹配: resource_id={resource_id}, type={resource.type}, 期望=comic")
             if query:
                 await query.answer("漫画不存在", show_alert=True)
             else:

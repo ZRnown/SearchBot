@@ -44,11 +44,25 @@ module.exports = mod;
 "[project]/lib/admin-api.ts [app-route] (ecmascript)", ((__turbopack_context__) => {
 "use strict";
 
+// 获取后端 API 地址
+// 优先使用 ADMIN_API_BASE_URL，如果没有则使用默认值
 __turbopack_context__.s([
     "adminFetch",
     ()=>adminFetch
 ]);
-const BASE_URL = process.env.ADMIN_API_BASE_URL ?? `http://127.0.0.1:${process.env.WEB_PORT ?? "8080"}`;
+const getBaseUrl = ()=>{
+    if (process.env.ADMIN_API_BASE_URL) {
+        return process.env.ADMIN_API_BASE_URL;
+    }
+    // 默认使用 localhost
+    const port = process.env.WEB_PORT ?? "8000";
+    return `http://127.0.0.1:${port}`;
+};
+const BASE_URL = getBaseUrl();
+// 调试：输出 BASE_URL（仅在开发环境）
+if ("TURBOPACK compile-time truthy", 1) {
+    console.log("[admin-api] BASE_URL:", BASE_URL);
+}
 async function adminFetch(path, init, token) {
     const url = path.startsWith("http") ? path : `${BASE_URL}${path}`;
     const headers = new Headers(init?.headers);

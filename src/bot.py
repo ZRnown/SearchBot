@@ -10,7 +10,7 @@ from aiogram.filters import Command
 from aiogram.types import CallbackQuery, InputMediaPhoto, LinkPreviewOptions, Message, User as TelegramUser
 
 from .config import settings
-from .db import Resource, SearchButton, User, db_session, init_db
+from .db import PaymentConfig, Resource, SearchButton, User, VipPlan, db_session, init_db
 from .keyboards import build_comic_nav_keyboard, build_keyboard
 from .renderers import render_search_message
 from .repositories import ResourceRepository
@@ -185,9 +185,12 @@ async def handle_callback(query: CallbackQuery):
         )
         return
 
-    if action == "comic_nav":
-        resource_id = payload.get("rid")
+    if action in ("comic_nav", "cn"):  # "cn" 是 "comic_nav" 的缩写
+        resource_id = payload.get("r") or payload.get("rid")  # 兼容旧版本
         page = max(payload.get("p", 1), 1)
+        if not resource_id:
+            await query.answer("资源ID丢失，请重新打开漫画", show_alert=True)
+            return
         await send_comic_page(
             chat_id=query.message.chat.id,
             user=query.from_user,
@@ -417,11 +420,73 @@ async def send_comic_page(
                 is_vip = vip_expiry > now
 
             if not is_vip:
-                recharge_url = settings.vip_recharge_url
+                # 获取 VIP 套餐和支付信息
+                plans = (
+                    session.query(VipPlan)
+                    .filter(VipPlan.is_active == True)
+                    .order_by(VipPlan.sort_order.asc(), VipPlan.id.asc())
+                    .all()
+                )
+                wechat_config = (
+                    session.query(PaymentConfig)
+                    .filter(PaymentConfig.payment_type == "wechat", PaymentConfig.is_active == True)
+                    .order_by(PaymentConfig.sort_order.asc())
+                    .first()
+                )
+                alipay_config = (
+                    session.query(PaymentConfig)
+                    .filter(PaymentConfig.payment_type == "alipay", PaymentConfig.is_active == True)
+                    .order_by(PaymentConfig.sort_order.asc())
+                    .first()
+                )
+                
+                # 构建 VIP 提示消息
+                message_text = "🔒 此内容仅限 VIP 会员访问\n\n"
+                
+                if plans:
+                    message_text += "💰 <b>VIP 套餐：</b>\n"
+                    for plan in plans:
+                        message_text += f"• {plan.name}：¥{plan.price}（{plan.duration_days}天）\n"
+                    message_text += "\n"
+                
+                message_text += "💳 <b>支付方式：</b>\n"
+                if wechat_config:
+                    message_text += "📱 微信支付"
+                    if wechat_config.account_name:
+                        message_text += f" - {wechat_config.account_name}"
+                    if wechat_config.account_number:
+                        message_text += f"\n   账号：{wechat_config.account_number}"
+                    if wechat_config.qr_code_file_id:
+                        # 发送二维码图片
+                        try:
+                            await bot.send_photo(chat_id, photo=wechat_config.qr_code_file_id, caption="微信支付二维码")
+                        except Exception as e:
+                            print(f"[Bot] 发送微信二维码失败: {e}")
+                    message_text += "\n"
+                
+                if alipay_config:
+                    message_text += "💵 支付宝"
+                    if alipay_config.account_name:
+                        message_text += f" - {alipay_config.account_name}"
+                    if alipay_config.account_number:
+                        message_text += f"\n   账号：{alipay_config.account_number}"
+                    if alipay_config.qr_code_file_id:
+                        # 发送二维码图片
+                        try:
+                            await bot.send_photo(chat_id, photo=alipay_config.qr_code_file_id, caption="支付宝二维码")
+                        except Exception as e:
+                            print(f"[Bot] 发送支付宝二维码失败: {e}")
+                    message_text += "\n"
+                
+                if not wechat_config and not alipay_config:
+                    # 如果没有配置支付信息，使用旧的充值链接
+                    recharge_url = settings.vip_recharge_url
+                    message_text += f"点击下方链接开通 VIP：\n{recharge_url}"
+                
                 await bot.send_message(
                     chat_id,
-                    f"🔒 此内容仅限 VIP 会员访问\n\n"
-                    f"点击下方链接开通 VIP：\n{recharge_url}",
+                    message_text,
+                    parse_mode="HTML",
                 )
                 if query:
                     await query.answer("请先开通 VIP", show_alert=True)

@@ -1,7 +1,390 @@
-[00:00:00.616] Server  LOG      ✓ Ready in 407ms
-[00:00:04.389] Server  LOG      ○ Compiling / ...
-[00:00:06.863] Browser INFO    %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold
-[00:00:07.172] Server  LOG     [admin-api] BASE_URL: "http://127.0.0.1:8000"
-[00:00:07.333] Browser LOG     %c[Vercel Web Analytics]%c Debug mode is enabled by default in development. No requests will be sent to the server. color: rgb(120, 120, 120) color: inherit
-[00:00:07.333] Browser LOG     %c[Vercel Web Analytics]%c Running queued event color: rgb(120, 120, 120) color: inherit pageview {"path":"/","route":"/"}
-[00:00:07.333] Browser LOG     %c[Vercel Web Analytics]%c [pageview] http://localhost:3000/ color: rgb(120, 120, 120) color: inherit {"dp":"/","o":"http://localhost:3000/","sdkn":"@vercel/analytics/next","sdkv":"1.5.0","sv":"0.1.3","ts":1764513334259}
+[00:00:01.238] Server  LOG      ✓ Ready in 757ms
+[00:00:35.513] Server  LOG      ○ Compiling / ...
+[00:00:37.452] Browser INFO    %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold
+[00:00:37.599] Browser LOG     %c[Vercel Web Analytics]%c Debug mode is enabled by default in development. No requests will be sent to the server. color: rgb(120, 120, 120) color: inherit
+[00:00:37.599] Browser LOG     %c[Vercel Web Analytics]%c Running queued event color: rgb(120, 120, 120) color: inherit pageview {"path":"/","route":"/"}
+[00:00:37.599] Browser LOG     %c[Vercel Web Analytics]%c [pageview] http://localhost:3000/ color: rgb(120, 120, 120) color: inherit {"dp":"/","o":"http://localhost:3000/","r":"","sdkn":"@vercel/analytics/next","sdkv":"1.5.0","sv":"0.1.3","ts":1764609296587}
+[00:00:38.099] Server  LOG     [admin-api] BASE_URL: "http://127.0.0.1:8000"
+[00:00:38.660] Browser LOG     %c[Vercel Web Analytics]%c [pageview] http://localhost:3000/login color: rgb(120, 120, 120) color: inherit {"dp":"/login","o":"http://localhost:3000/login","sdkn":"@vercel/analytics/next","sdkv":"1.5.0","sv":"0.1.3","ts":1764609297652}
+[00:01:24.784] Browser LOG     %c[Vercel Web Analytics]%c [pageview] http://localhost:3000/ color: rgb(120, 120, 120) color: inherit {"dp":"/","o":"http://localhost:3000/","sdkn":"@vercel/analytics/next","sdkv":"1.5.0","sv":"0.1.3","ts":1764609343777}
+[00:16:48.198] Server  LOG      ✓ Compiled in 273ms
+[00:18:27.945] Server  LOG     [admin-api] BASE_URL: "http://127.0.0.1:8000"
+[00:24:14.216] Server  ERROR   TypeError: Response constructor: Invalid response status code 204
+[00:27:38.037] Server  LOG      ✓ Compiled in 79ms
+[00:28:42.879] Server  LOG      ✓ Compiled in 136ms
+[00:28:42.986] Browser ERROR   ./components/vip-settings.tsx:1:2
+Parsing ecmascript source code failed
+> 1 | \"use client\"
+    |  ^^^^^^^^^^^^^
+  2 |
+  3 | import { useEffect, useState } from \"react\"
+  4 | import { Card, CardContent, CardHeader, CardTitle } from \"@/components/ui/card\"
+
+Unterminated string constant
+
+Import traces:
+  Client Component Browser:
+    ./components/vip-settings.tsx [Client Component Browser]
+    ./app/page.tsx [Client Component Browser]
+    ./app/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./components/vip-settings.tsx [Client Component SSR]
+    ./app/page.tsx [Client Component SSR]
+    ./app/page.tsx [Server Component]
+[00:29:05.234] Server  LOG      ✓ Compiled in 198ms
+[00:29:05.338] Browser ERROR   ./components/vip-settings.tsx:1:2
+Parsing ecmascript source code failed
+> 1 | \"use client\"
+    |  ^^^^^^^^^^^^^
+  2 |
+  3 | import { useEffect, useState } from \"react\"
+  4 | import { Card, CardContent, CardHeader, CardTitle } from \"@/components/ui/card\"
+
+Unterminated string constant
+
+Import traces:
+  Client Component Browser:
+    ./components/vip-settings.tsx [Client Component Browser]
+    ./app/page.tsx [Client Component Browser]
+    ./app/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./components/vip-settings.tsx [Client Component SSR]
+    ./app/page.tsx [Client Component SSR]
+    ./app/page.tsx [Server Component]
+[00:29:29.299] Browser ERROR   ./components/vip-settings.tsx:1:2
+Parsing ecmascript source code failed
+> 1 | \"use client\"
+    |  ^^^^^^^^^^^^^
+  2 |
+  3 | import { useEffect, useState } from \"react\"
+  4 | import { Card, CardContent, CardHeader, CardTitle } from \"@/components/ui/card\"
+
+Unterminated string constant
+
+Import traces:
+  Client Component Browser:
+    ./components/vip-settings.tsx [Client Component Browser]
+    ./app/page.tsx [Client Component Browser]
+    ./app/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./components/vip-settings.tsx [Client Component SSR]
+    ./app/page.tsx [Client Component SSR]
+    ./app/page.tsx [Server Component]
+[00:35:21.414] Server  ERROR    ⨯ ./components/vip-settings.tsx:1:2
+Parsing ecmascript source code failed
+> 1 | \"use client\"
+    |  ^^^^^^^^^^^^^
+  2 |
+  3 | import { useEffect, useState } from \"react\"
+  4 | import { Card, CardContent, CardHeader, CardTitle } from \"@/components/ui/card\"
+
+Unterminated string constant
+
+Import traces:
+  Client Component Browser:
+    ./components/vip-settings.tsx [Client Component Browser]
+    ./app/page.tsx [Client Component Browser]
+    ./app/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./components/vip-settings.tsx [Client Component SSR]
+    ./app/page.tsx [Client Component SSR]
+    ./app/page.tsx [Server Component]
+
+
+[00:35:21.551] Browser ERROR   ./components/vip-settings.tsx:1:2
+Parsing ecmascript source code failed
+> 1 | \"use client\"
+    |  ^^^^^^^^^^^^^
+  2 |
+  3 | import { useEffect, useState } from \"react\"
+  4 | import { Card, CardContent, CardHeader, CardTitle } from \"@/components/ui/card\"
+
+Unterminated string constant
+
+Import traces:
+  Client Component Browser:
+    ./components/vip-settings.tsx [Client Component Browser]
+    ./app/page.tsx [Client Component Browser]
+    ./app/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./components/vip-settings.tsx [Client Component SSR]
+    ./app/page.tsx [Client Component SSR]
+    ./app/page.tsx [Server Component]
+[00:35:22.005] Browser ERROR   ./components/vip-settings.tsx:1:2
+Parsing ecmascript source code failed
+> 1 | \"use client\"
+    |  ^^^^^^^^^^^^^
+  2 |
+  3 | import { useEffect, useState } from \"react\"
+  4 | import { Card, CardContent, CardHeader, CardTitle } from \"@/components/ui/card\"
+
+Unterminated string constant
+
+Import traces:
+  Client Component Browser:
+    ./components/vip-settings.tsx [Client Component Browser]
+    ./app/page.tsx [Client Component Browser]
+    ./app/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./components/vip-settings.tsx [Client Component SSR]
+    ./app/page.tsx [Client Component SSR]
+    ./app/page.tsx [Server Component]
+[00:35:22.005] Browser ERROR   ./components/vip-settings.tsx:1:2
+Parsing ecmascript source code failed
+> 1 | \"use client\"
+    |  ^^^^^^^^^^^^^
+  2 |
+  3 | import { useEffect, useState } from \"react\"
+  4 | import { Card, CardContent, CardHeader, CardTitle } from \"@/components/ui/card\"
+
+Unterminated string constant
+
+Import traces:
+  Client Component Browser:
+    ./components/vip-settings.tsx [Client Component Browser]
+    ./app/page.tsx [Client Component Browser]
+    ./app/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./components/vip-settings.tsx [Client Component SSR]
+    ./app/page.tsx [Client Component SSR]
+    ./app/page.tsx [Server Component]
+[00:35:22.592] Browser ERROR   uncaughtError: Error: ./components/vip-settings.tsx:1:2
+Parsing ecmascript source code failed
+> 1 | \"use client\"
+    |  ^^^^^^^^^^^^^
+  2 |
+  3 | import { useEffect, useState } from \"react\"
+  4 | import { Card, CardContent, CardHeader, CardTitle } from \"@/components/ui/card\"
+
+Unterminated string constant
+
+Import traces:
+  Client Component Browser:
+    ./components/vip-settings.tsx [Client Component Browser]
+    ./app/page.tsx [Client Component Browser]
+    ./app/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./components/vip-settings.tsx [Client Component SSR]
+    ./app/page.tsx [Client Component SSR]
+    ./app/page.tsx [Server Component]
+
+
+[00:35:22.753] Browser ERROR   ./components/vip-settings.tsx:1:2
+Parsing ecmascript source code failed
+> 1 | \"use client\"
+    |  ^^^^^^^^^^^^^
+  2 |
+  3 | import { useEffect, useState } from \"react\"
+  4 | import { Card, CardContent, CardHeader, CardTitle } from \"@/components/ui/card\"
+
+Unterminated string constant
+
+Import traces:
+  Client Component Browser:
+    ./components/vip-settings.tsx [Client Component Browser]
+    ./app/page.tsx [Client Component Browser]
+    ./app/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./components/vip-settings.tsx [Client Component SSR]
+    ./app/page.tsx [Client Component SSR]
+    ./app/page.tsx [Server Component]
+[00:35:22.753] Browser ERROR   ./components/vip-settings.tsx:1:2
+Parsing ecmascript source code failed
+> 1 | \"use client\"
+    |  ^^^^^^^^^^^^^
+  2 |
+  3 | import { useEffect, useState } from \"react\"
+  4 | import { Card, CardContent, CardHeader, CardTitle } from \"@/components/ui/card\"
+
+Unterminated string constant
+
+Import traces:
+  Client Component Browser:
+    ./components/vip-settings.tsx [Client Component Browser]
+    ./app/page.tsx [Client Component Browser]
+    ./app/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./components/vip-settings.tsx [Client Component SSR]
+    ./app/page.tsx [Client Component SSR]
+    ./app/page.tsx [Server Component]
+[00:36:09.633] Server  ERROR    ⨯ ./app/page.tsx:12:1
+Module not found: Can't resolve '@/components/vip-settings'
+  10 | import { SearchButtonManager } from "@/components/search-button-manager"
+  11 | import { UserManager } from "@/components/user-manager"
+> 12 | import { VipSettings } from "@/components/vip-settings"
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  13 | import { Button } from "@/components/ui/button"
+  14 | import { useToast } from "@/components/ui/use-toast"
+  15 |
+
+Import map: aliased to relative './components/vip-settings' inside of [project]/
+
+
+Import traces:
+  Client Component Browser:
+    ./app/page.tsx [Client Component Browser]
+    ./app/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./app/page.tsx [Client Component SSR]
+    ./app/page.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found
+
+
+[00:36:09.635] Server  ERROR    ⨯ ./app/page.tsx:12:1
+Module not found: Can't resolve '@/components/vip-settings'
+  10 | import { SearchButtonManager } from "@/components/search-button-manager"
+  11 | import { UserManager } from "@/components/user-manager"
+> 12 | import { VipSettings } from "@/components/vip-settings"
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  13 | import { Button } from "@/components/ui/button"
+  14 | import { useToast } from "@/components/ui/use-toast"
+  15 |
+
+Import map: aliased to relative './components/vip-settings' inside of [project]/
+
+
+Import traces:
+  Client Component Browser:
+    ./app/page.tsx [Client Component Browser]
+    ./app/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./app/page.tsx [Client Component SSR]
+    ./app/page.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found
+
+
+[00:36:09.636] Server  ERROR    ⨯ ./app/page.tsx:12:1
+Module not found: Can't resolve '@/components/vip-settings'
+  10 | import { SearchButtonManager } from "@/components/search-button-manager"
+  11 | import { UserManager } from "@/components/user-manager"
+> 12 | import { VipSettings } from "@/components/vip-settings"
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  13 | import { Button } from "@/components/ui/button"
+  14 | import { useToast } from "@/components/ui/use-toast"
+  15 |
+
+Import map: aliased to relative './components/vip-settings' inside of [project]/
+
+
+Import traces:
+  Client Component Browser:
+    ./app/page.tsx [Client Component Browser]
+    ./app/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./app/page.tsx [Client Component SSR]
+    ./app/page.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found
+
+
+[00:36:09.638] Server  ERROR    ⨯ ./app/page.tsx:12:1
+Module not found: Can't resolve '@/components/vip-settings'
+  10 | import { SearchButtonManager } from "@/components/search-button-manager"
+  11 | import { UserManager } from "@/components/user-manager"
+> 12 | import { VipSettings } from "@/components/vip-settings"
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  13 | import { Button } from "@/components/ui/button"
+  14 | import { useToast } from "@/components/ui/use-toast"
+  15 |
+
+Import map: aliased to relative './components/vip-settings' inside of [project]/
+
+
+Import traces:
+  Client Component Browser:
+    ./app/page.tsx [Client Component Browser]
+    ./app/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./app/page.tsx [Client Component SSR]
+    ./app/page.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found
+
+
+[00:36:09.768] Browser ERROR   ./app/page.tsx:12:1
+Module not found: Can't resolve '@/components/vip-settings'
+  10 | import { SearchButtonManager } from "@/components/search-button-manager"
+  11 | import { UserManager } from "@/components/user-manager"
+> 12 | import { VipSettings } from "@/components/vip-settings"
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  13 | import { Button } from "@/components/ui/button"
+  14 | import { useToast } from "@/components/ui/use-toast"
+  15 |
+
+Import map: aliased to relative './components/vip-settings' inside of [project]/
+
+Import traces:
+  Client Component Browser:
+    ./app/page.tsx [Client Component Browser]
+    ./app/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./app/page.tsx [Client Component SSR]
+    ./app/page.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found
+[00:37:09.331] Browser ERROR   ./app/page.tsx:12:1
+Export VipSettings doesn't exist in target module
+  10 | import { SearchButtonManager } from "@/components/search-button-manager"
+  11 | import { UserManager } from "@/components/user-manager"
+> 12 | import { VipSettings } from "@/components/vip-settings"
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  13 | import { Button } from "@/components/ui/button"
+  14 | import { useToast } from "@/components/ui/use-toast"
+  15 |
+
+The export VipSettings was not found in module [project]/components/vip-settings.tsx [app-client] (ecmascript).
+The module has no exports at all.
+All exports of the module are statically known (It doesn't have dynamic exports). So it's known statically that the requested export doesn't exist.
+
+Import traces:
+  Client Component Browser:
+    ./app/page.tsx [Client Component Browser]
+    ./app/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./app/page.tsx [Client Component SSR]
+    ./app/page.tsx [Server Component]
+[00:37:09.337] Browser ERROR   ./app/page.tsx:12:1
+Export VipSettings doesn't exist in target module
+  10 | import { SearchButtonManager } from "@/components/search-button-manager"
+  11 | import { UserManager } from "@/components/user-manager"
+> 12 | import { VipSettings } from "@/components/vip-settings"
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  13 | import { Button } from "@/components/ui/button"
+  14 | import { useToast } from "@/components/ui/use-toast"
+  15 |
+
+The export VipSettings was not found in module [project]/components/vip-settings.tsx [app-ssr] (ecmascript).
+The module has no exports at all.
+All exports of the module are statically known (It doesn't have dynamic exports). So it's known statically that the requested export doesn't exist.
+
+Import traces:
+  Client Component Browser:
+    ./app/page.tsx [Client Component Browser]
+    ./app/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./app/page.tsx [Client Component SSR]
+    ./app/page.tsx [Server Component]
+[00:37:09.430] Server  LOG      ✓ Compiled in 108ms
+[00:37:09.911] Browser INFO    %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold
+[00:37:10.043] Browser LOG     %c[Vercel Web Analytics]%c Debug mode is enabled by default in development. No requests will be sent to the server. color: rgb(120, 120, 120) color: inherit
+[00:37:10.043] Browser LOG     %c[Vercel Web Analytics]%c Running queued event color: rgb(120, 120, 120) color: inherit pageview {"path":"/","route":"/"}
+[00:37:10.043] Browser LOG     %c[Vercel Web Analytics]%c [pageview] http://localhost:3000/ color: rgb(120, 120, 120) color: inherit {"dp":"/","o":"http://localhost:3000/","sdkn":"@vercel/analytics/next","sdkv":"1.5.0","sv":"0.1.3","ts":1764611488973}

@@ -9,10 +9,11 @@ import { ResourceList } from "@/components/resource-list"
 import { SettingsDrawer } from "@/components/settings-drawer"
 import { SearchButtonManager } from "@/components/search-button-manager"
 import { UserManager } from "@/components/user-manager"
+import { VipSettings } from "@/components/vip-settings"
 import { Button } from "@/components/ui/button"
 import { useToast } from "@/components/ui/use-toast"
 
-type NavItem = "novel-audio" | "comic" | "resources" | "buttons" | "users" | "settings"
+type NavItem = "novel-audio" | "comic" | "resources" | "buttons" | "users" | "vip" | "settings"
 
 interface Session {
   username: string
@@ -87,6 +88,7 @@ export default function Dashboard() {
               {activeItem === "resources" && "管理资源"}
                 {activeItem === "buttons" && "搜索结果底部按钮"}
                 {activeItem === "users" && "用户管理"}
+              {activeItem === "vip" && "VIP 套餐 / 支付配置"}
               {activeItem === "settings" && "设置"}
             </h1>
             <p className="text-muted-foreground mt-1">
@@ -95,7 +97,8 @@ export default function Dashboard() {
               {activeItem === "resources" && "查看和管理所有已索引的资源"}
                 {activeItem === "buttons" && "自定义搜索回复下方的跳转按钮"}
                 {activeItem === "users" && "查看所有使用机器人用户，并手动配置 VIP 权限"}
-                {activeItem === "settings" && "配置机器人设置与账户安全"}
+                {activeItem === "vip" && "配置 VIP 套餐价格，以及微信 / 支付宝收款方式"}
+                {activeItem === "settings" && "配置机器人基础设置与账户安全"}
             </p>
             </div>
             <div className="flex items-center gap-3">
@@ -111,6 +114,7 @@ export default function Dashboard() {
           {activeItem === "resources" && <ResourceList />}
           {activeItem === "buttons" && <SearchButtonManager />}
           {activeItem === "users" && <UserManager />}
+          {activeItem === "vip" && <VipSettings />}
           {activeItem === "settings" && <SettingsDrawer username={session?.username} />}
         </div>
       </main>

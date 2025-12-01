@@ -1,10 +1,10 @@
 "use client"
 
 import { cn } from "@/lib/utils"
-import { Book, Heart, Settings, List, Link2, Users, PanelLeftClose, PanelLeft } from "lucide-react"
+import { Book, Heart, Settings, List, Link2, Users, PanelLeftClose, PanelLeft, CreditCard } from "lucide-react"
 import { Button } from "@/components/ui/button"
 
-type NavItem = "novel-audio" | "comic" | "resources" | "buttons" | "users" | "settings"
+type NavItem = "novel-audio" | "comic" | "resources" | "buttons" | "users" | "vip" | "settings"
 
 interface SidebarProps {
   activeItem: NavItem
@@ -20,6 +20,7 @@ const navItems = [
   { id: "resources" as const, label: "资源管理", icon: List },
   { id: "buttons" as const, label: "搜索结果按钮", icon: Link2 },
   { id: "users" as const, label: "用户管理", icon: Users },
+  { id: "vip" as const, label: "VIP / 支付", icon: CreditCard },
   { id: "settings" as const, label: "设置", icon: Settings },
 ]
 

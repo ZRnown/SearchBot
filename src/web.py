@@ -31,7 +31,7 @@ from passlib.context import CryptContext
 from sqlalchemy import String
 
 from .config import settings
-from .db import AdminUser, ComicFile, Resource, SearchButton, User, db_session, init_db
+from .db import AdminUser, ComicFile, PaymentConfig, Resource, SearchButton, User, VipPlan, db_session, init_db
 
 
 class ResourceResponse(BaseModel):
@@ -119,6 +119,74 @@ class UserUpdateIn(BaseModel):
     username: Optional[str] = None
     vip_expiry: Optional[datetime] = None
     is_blocked: Optional[bool] = None
+
+
+class VipPlanResponse(BaseModel):
+    id: int
+    name: str
+    duration_days: int
+    price: str
+    description: Optional[str]
+    is_active: bool
+    sort_order: int
+    created_at: datetime
+    updated_at: datetime
+
+
+class VipPlanCreateIn(BaseModel):
+    name: str
+    duration_days: int
+    price: str
+    description: Optional[str] = None
+    is_active: bool = True
+    sort_order: int = 0
+
+
+class VipPlanUpdateIn(BaseModel):
+    name: Optional[str] = None
+    duration_days: Optional[int] = None
+    price: Optional[str] = None
+    description: Optional[str] = None
+    is_active: Optional[bool] = None
+    sort_order: Optional[int] = None
+
+
+class PaymentConfigResponse(BaseModel):
+    id: int
+    payment_type: str
+    account_name: Optional[str]
+    account_number: Optional[str]
+    qr_code_url: Optional[str]
+    qr_code_file_id: Optional[str]
+    is_active: bool
+    sort_order: int
+    created_at: datetime
+    updated_at: datetime
+
+
+class PaymentConfigCreateIn(BaseModel):
+    payment_type: str
+    account_name: Optional[str] = None
+    account_number: Optional[str] = None
+    qr_code_url: Optional[str] = None
+    qr_code_file_id: Optional[str] = None
+    is_active: bool = True
+    sort_order: int = 0
+
+
+class PaymentConfigUpdateIn(BaseModel):
+    account_name: Optional[str] = None
+    account_number: Optional[str] = None
+    qr_code_url: Optional[str] = None
+    qr_code_file_id: Optional[str] = None
+    is_active: Optional[bool] = None
+    sort_order: Optional[int] = None
+
+
+class VipPaymentInfoResponse(BaseModel):
+    plans: List[VipPlanResponse]
+    wechat_config: Optional[PaymentConfigResponse] = None
+    alipay_config: Optional[PaymentConfigResponse] = None
 
 
 logger = logging.getLogger(__name__)
@@ -1051,7 +1119,11 @@ async def upload_comic_archive(
             deep_link = f"https://t.me/{bot_username}?start=comic_{resource.id}"
             
             # 发送前几张图片到预览频道（作为一条媒体组消息），第一张图片的caption包含超链接
-            preview_file_ids = stored_file_ids[:min(preview_count, len(stored_file_ids))]
+            # stored_file_ids 里的元素可能是 file_id 或 (file_id, message_id) 元组，这里统一只取 file_id
+            preview_file_ids = [
+                (item[0] if isinstance(item, tuple) else item)
+                for item in stored_file_ids[:min(preview_count, len(stored_file_ids))]
+            ]
             preview_messages = []
             if preview_file_ids:
                 try:
@@ -1060,7 +1132,13 @@ async def upload_comic_archive(
                     for idx, file_id in enumerate(preview_file_ids):
                         if idx == 0:
                             caption = f'📖 <a href="{deep_link}">{title}</a>'
-                            media_group.append(InputMediaPhoto(media=file_id, caption=caption, parse_mode="HTML"))
+                            media_group.append(
+                                InputMediaPhoto(
+                                    media=file_id,
+                                    caption=caption,
+                                    parse_mode="HTML",
+                                )
+                            )
                         else:
                             media_group.append(InputMediaPhoto(media=file_id))
                     messages = await admin_bot.send_media_group(
@@ -1689,4 +1767,293 @@ async def batch_delete_users(
             session.delete(user)
         session.flush()
     return Response(status_code=204)
+
+
+# ==================== VIP 套餐管理 ====================
+
+@app.get("/vip-plans", response_model=List[VipPlanResponse])
+async def list_vip_plans(_: Annotated[str, Depends(require_admin)]):
+    with db_session() as session:
+        plans = session.query(VipPlan).order_by(VipPlan.sort_order.asc(), VipPlan.id.asc()).all()
+        return [
+            VipPlanResponse(
+                id=plan.id,
+                name=plan.name,
+                duration_days=plan.duration_days,
+                price=plan.price,
+                description=plan.description,
+                is_active=plan.is_active,
+                sort_order=plan.sort_order,
+                created_at=plan.created_at,
+                updated_at=plan.updated_at,
+            )
+            for plan in plans
+        ]
+
+
+@app.post("/vip-plans", response_model=VipPlanResponse)
+async def create_vip_plan(
+    payload: VipPlanCreateIn,
+    _: Annotated[str, Depends(require_admin)],
+):
+    with db_session() as session:
+        plan = VipPlan(
+            name=payload.name,
+            duration_days=payload.duration_days,
+            price=payload.price,
+            description=payload.description,
+            is_active=payload.is_active,
+            sort_order=payload.sort_order,
+        )
+        session.add(plan)
+        session.flush()
+        return VipPlanResponse(
+            id=plan.id,
+            name=plan.name,
+            duration_days=plan.duration_days,
+            price=plan.price,
+            description=plan.description,
+            is_active=plan.is_active,
+            sort_order=plan.sort_order,
+            created_at=plan.created_at,
+            updated_at=plan.updated_at,
+        )
+
+
+@app.put("/vip-plans/{plan_id}", response_model=VipPlanResponse)
+async def update_vip_plan(
+    plan_id: int,
+    payload: VipPlanUpdateIn,
+    _: Annotated[str, Depends(require_admin)],
+):
+    with db_session() as session:
+        plan = session.get(VipPlan, plan_id)
+        if not plan:
+            raise HTTPException(status_code=404, detail="VIP plan not found")
+        fields_set = getattr(payload, "model_fields_set", getattr(payload, "__fields_set__", set()))
+        if payload.name is not None:
+            plan.name = payload.name
+        if payload.duration_days is not None:
+            plan.duration_days = payload.duration_days
+        if payload.price is not None:
+            plan.price = payload.price
+        if payload.description is not None or "description" in fields_set:
+            plan.description = payload.description
+        if payload.is_active is not None:
+            plan.is_active = payload.is_active
+        if payload.sort_order is not None:
+            plan.sort_order = payload.sort_order
+        session.flush()
+        return VipPlanResponse(
+            id=plan.id,
+            name=plan.name,
+            duration_days=plan.duration_days,
+            price=plan.price,
+            description=plan.description,
+            is_active=plan.is_active,
+            sort_order=plan.sort_order,
+            created_at=plan.created_at,
+            updated_at=plan.updated_at,
+        )
+
+
+@app.delete("/vip-plans/{plan_id}", status_code=204, response_class=Response)
+async def delete_vip_plan(
+    plan_id: int,
+    _: Annotated[str, Depends(require_admin)],
+):
+    with db_session() as session:
+        plan = session.get(VipPlan, plan_id)
+        if not plan:
+            raise HTTPException(status_code=404, detail="VIP plan not found")
+        session.delete(plan)
+        session.flush()
+    return Response(status_code=204)
+
+
+# ==================== 支付配置管理 ====================
+
+@app.get("/payment-configs", response_model=List[PaymentConfigResponse])
+async def list_payment_configs(_: Annotated[str, Depends(require_admin)]):
+    with db_session() as session:
+        configs = session.query(PaymentConfig).order_by(PaymentConfig.sort_order.asc(), PaymentConfig.id.asc()).all()
+        return [
+            PaymentConfigResponse(
+                id=config.id,
+                payment_type=config.payment_type,
+                account_name=config.account_name,
+                account_number=config.account_number,
+                qr_code_url=config.qr_code_url,
+                qr_code_file_id=config.qr_code_file_id,
+                is_active=config.is_active,
+                sort_order=config.sort_order,
+                created_at=config.created_at,
+                updated_at=config.updated_at,
+            )
+            for config in configs
+        ]
+
+
+@app.post("/payment-configs", response_model=PaymentConfigResponse)
+async def create_payment_config(
+    payload: PaymentConfigCreateIn,
+    _: Annotated[str, Depends(require_admin)],
+):
+    if payload.payment_type not in ("wechat", "alipay"):
+        raise HTTPException(status_code=400, detail="payment_type must be 'wechat' or 'alipay'")
+    with db_session() as session:
+        config = PaymentConfig(
+            payment_type=payload.payment_type,
+            account_name=payload.account_name,
+            account_number=payload.account_number,
+            qr_code_url=payload.qr_code_url,
+            qr_code_file_id=payload.qr_code_file_id,
+            is_active=payload.is_active,
+            sort_order=payload.sort_order,
+        )
+        session.add(config)
+        session.flush()
+        return PaymentConfigResponse(
+            id=config.id,
+            payment_type=config.payment_type,
+            account_name=config.account_name,
+            account_number=config.account_number,
+            qr_code_url=config.qr_code_url,
+            qr_code_file_id=config.qr_code_file_id,
+            is_active=config.is_active,
+            sort_order=config.sort_order,
+            created_at=config.created_at,
+            updated_at=config.updated_at,
+        )
+
+
+@app.put("/payment-configs/{config_id}", response_model=PaymentConfigResponse)
+async def update_payment_config(
+    config_id: int,
+    payload: PaymentConfigUpdateIn,
+    _: Annotated[str, Depends(require_admin)],
+):
+    with db_session() as session:
+        config = session.get(PaymentConfig, config_id)
+        if not config:
+            raise HTTPException(status_code=404, detail="Payment config not found")
+        fields_set = getattr(payload, "model_fields_set", getattr(payload, "__fields_set__", set()))
+        if payload.account_name is not None or "account_name" in fields_set:
+            config.account_name = payload.account_name
+        if payload.account_number is not None or "account_number" in fields_set:
+            config.account_number = payload.account_number
+        if payload.qr_code_url is not None or "qr_code_url" in fields_set:
+            config.qr_code_url = payload.qr_code_url
+        if payload.qr_code_file_id is not None or "qr_code_file_id" in fields_set:
+            config.qr_code_file_id = payload.qr_code_file_id
+        if payload.is_active is not None:
+            config.is_active = payload.is_active
+        if payload.sort_order is not None:
+            config.sort_order = payload.sort_order
+        session.flush()
+        return PaymentConfigResponse(
+            id=config.id,
+            payment_type=config.payment_type,
+            account_name=config.account_name,
+            account_number=config.account_number,
+            qr_code_url=config.qr_code_url,
+            qr_code_file_id=config.qr_code_file_id,
+            is_active=config.is_active,
+            sort_order=config.sort_order,
+            created_at=config.created_at,
+            updated_at=config.updated_at,
+        )
+
+
+@app.delete("/payment-configs/{config_id}", status_code=204, response_class=Response)
+async def delete_payment_config(
+    config_id: int,
+    _: Annotated[str, Depends(require_admin)],
+):
+    with db_session() as session:
+        config = session.get(PaymentConfig, config_id)
+        if not config:
+            raise HTTPException(status_code=404, detail="Payment config not found")
+        session.delete(config)
+        session.flush()
+    return Response(status_code=204)
+
+
+# ==================== 公开的支付信息接口（供机器人使用）====================
+
+@app.get("/vip/payment-info", response_model=VipPaymentInfoResponse)
+async def get_vip_payment_info():
+    """获取 VIP 支付信息（公开接口，供机器人使用）"""
+    with db_session() as session:
+        # 获取所有启用的 VIP 套餐
+        plans = (
+            session.query(VipPlan)
+            .filter(VipPlan.is_active == True)
+            .order_by(VipPlan.sort_order.asc(), VipPlan.id.asc())
+            .all()
+        )
+        plan_responses = [
+            VipPlanResponse(
+                id=plan.id,
+                name=plan.name,
+                duration_days=plan.duration_days,
+                price=plan.price,
+                description=plan.description,
+                is_active=plan.is_active,
+                sort_order=plan.sort_order,
+                created_at=plan.created_at,
+                updated_at=plan.updated_at,
+            )
+            for plan in plans
+        ]
+        
+        # 获取启用的支付配置
+        wechat_config = (
+            session.query(PaymentConfig)
+            .filter(PaymentConfig.payment_type == "wechat", PaymentConfig.is_active == True)
+            .order_by(PaymentConfig.sort_order.asc())
+            .first()
+        )
+        alipay_config = (
+            session.query(PaymentConfig)
+            .filter(PaymentConfig.payment_type == "alipay", PaymentConfig.is_active == True)
+            .order_by(PaymentConfig.sort_order.asc())
+            .first()
+        )
+        
+        wechat_response = None
+        if wechat_config:
+            wechat_response = PaymentConfigResponse(
+                id=wechat_config.id,
+                payment_type=wechat_config.payment_type,
+                account_name=wechat_config.account_name,
+                account_number=wechat_config.account_number,
+                qr_code_url=wechat_config.qr_code_url,
+                qr_code_file_id=wechat_config.qr_code_file_id,
+                is_active=wechat_config.is_active,
+                sort_order=wechat_config.sort_order,
+                created_at=wechat_config.created_at,
+                updated_at=wechat_config.updated_at,
+            )
+        
+        alipay_response = None
+        if alipay_config:
+            alipay_response = PaymentConfigResponse(
+                id=alipay_config.id,
+                payment_type=alipay_config.payment_type,
+                account_name=alipay_config.account_name,
+                account_number=alipay_config.account_number,
+                qr_code_url=alipay_config.qr_code_url,
+                qr_code_file_id=alipay_config.qr_code_file_id,
+                is_active=alipay_config.is_active,
+                sort_order=alipay_config.sort_order,
+                created_at=alipay_config.created_at,
+                updated_at=alipay_config.updated_at,
+            )
+        
+        return VipPaymentInfoResponse(
+            plans=plan_responses,
+            wechat_config=wechat_response,
+            alipay_config=alipay_response,
+        )
 

@@ -142,6 +142,43 @@ class SearchButton(Base):
     )
 
 
+class VipPlan(Base):
+    __tablename__ = "vip_plans"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(64), nullable=False)  # 套餐名称，如 "月度VIP"
+    duration_days: Mapped[int] = mapped_column(Integer, nullable=False)  # 时长（天）
+    price: Mapped[float] = mapped_column(String(20), nullable=False)  # 价格（字符串，支持小数点）
+    description: Mapped[Optional[str]] = mapped_column(Text)  # 描述
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)  # 是否启用
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)  # 排序
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=datetime.utcnow
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow
+    )
+
+
+class PaymentConfig(Base):
+    __tablename__ = "payment_configs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    payment_type: Mapped[str] = mapped_column(String(16), nullable=False)  # wechat, alipay
+    account_name: Mapped[Optional[str]] = mapped_column(String(128))  # 收款人姓名
+    account_number: Mapped[Optional[str]] = mapped_column(String(128))  # 收款账号
+    qr_code_url: Mapped[Optional[str]] = mapped_column(Text)  # 二维码图片URL
+    qr_code_file_id: Mapped[Optional[str]] = mapped_column(Text)  # 二维码Telegram file_id
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)  # 是否启用
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)  # 排序
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=datetime.utcnow
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow
+    )
+
+
 @contextmanager
 def db_session():
     session = SessionLocal()

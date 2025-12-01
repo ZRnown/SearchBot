@@ -1,0 +1,6 @@
+var R=require("../../../../chunks/[turbopack]_runtime.js")("server/app/api/users/count/route.js")
+R.c("server/chunks/275cd_next_afad22b1._.js")
+R.c("server/chunks/[root-of-the-server]__27b15586._.js")
+R.c("server/chunks/_next-internal_server_app_api_users_count_route_actions_515ed752.js")
+R.m("[project]/node_modules/.pnpm/next@16.0.3_react-dom@19.2.0_react@19.2.0__react@19.2.0/node_modules/next/dist/esm/build/templates/app-route.js { INNER_APP_ROUTE => \"[project]/app/api/users/count/route.ts [app-route] (ecmascript)\" } [app-route] (ecmascript)")
+module.exports=R.m("[project]/node_modules/.pnpm/next@16.0.3_react-dom@19.2.0_react@19.2.0__react@19.2.0/node_modules/next/dist/esm/build/templates/app-route.js { INNER_APP_ROUTE => \"[project]/app/api/users/count/route.ts [app-route] (ecmascript)\" } [app-route] (ecmascript)").exports

@@ -79,7 +79,7 @@ def build_comic_nav_keyboard(resource_id: str, page: int, total_pages: int) -> I
             InlineKeyboardButton(
                 text="⬅️ 上一页",
                 callback_data=json_dumps(
-                    {"a": "comic_nav", "rid": resource_id, "p": page - 1}
+                    {"a": "cn", "r": resource_id, "p": page - 1}
                 ),
             )
         )
@@ -94,7 +94,7 @@ def build_comic_nav_keyboard(resource_id: str, page: int, total_pages: int) -> I
             InlineKeyboardButton(
                 text="下一页 ➡️",
                 callback_data=json_dumps(
-                    {"a": "comic_nav", "rid": resource_id, "p": page + 1}
+                    {"a": "cn", "r": resource_id, "p": page + 1}
                 ),
             )
         )
@@ -113,6 +113,19 @@ def json_dumps(payload: dict) -> str:
     
     # Telegram 限制 callback_data 为 64 字节
     if result_len > 64:
+        # 对于 comic_nav 操作（使用 "cn" 作为 action），resource_id 是必需的，不能截断
+        # 但我们可以使用更短的字段名（已经在 build_comic_nav_keyboard 中使用 "r" 而不是 "rid"）
+        if payload.get("a") in ("comic_nav", "cn"):
+            # comic_nav 的 payload 格式: {"a":"cn","r":"uuid","p":1}
+            # UUID 是 36 字符，加上其他字段，最小长度约为: 3+1+36+1+1+1 = 43 字节
+            # 如果还是超过，说明 UUID 格式有问题，记录警告
+            if result_len > 64:
+                print(f"[Keyboards] ⚠️ comic_nav callback_data 超过 64 字节: {result_len} 字节, payload: {payload}")
+                # 对于 comic_nav，我们不能截断 resource_id，所以如果超过限制，返回错误提示
+                # 但实际上，使用 "r" 字段名和 "cn" action 后，应该不会超过 64 字节
+                # 如果还是超过，可能是 UUID 格式异常，记录警告但继续
+                pass
+        
         # 如果超过限制，尝试截断 keyword
         if "k" in payload and payload["k"]:
             keyword = payload["k"]
@@ -148,6 +161,12 @@ def json_dumps(payload: dict) -> str:
         
         # 最终检查：如果还是超过 64 字节，使用最小格式
         if result_len > 64:
+            # 对于 comic_nav，不能使用最小格式（会丢失 resource_id）
+            if payload.get("a") in ("comic_nav", "cn"):
+                print(f"[Keyboards] ❌ comic_nav callback_data 仍然超过 64 字节: {result_len} 字节")
+                # 返回原始结果，让 Telegram 处理（可能会失败，但至少不会丢失数据）
+                return result
+            
             # 使用最短格式：只保留必要的字段
             minimal_payload = {
                 "a": payload.get("a", ""),

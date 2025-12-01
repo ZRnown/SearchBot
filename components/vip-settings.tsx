@@ -7,6 +7,16 @@ import { Label } from "@/components/ui/label"
 import { Button } from "@/components/ui/button"
 import { useToast } from "@/components/ui/use-toast"
 import { Spinner } from "@/components/ui/spinner"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 
 // 管理后台中的 VIP 套餐和支付配置面板
 export function VipSettings() {
@@ -21,6 +31,10 @@ export function VipSettings() {
   const [savingPayment, setSavingPayment] = useState(false)
   const [deletingPlanId, setDeletingPlanId] = useState<number | null>(null)
   const [deletingPaymentId, setDeletingPaymentId] = useState<number | null>(null)
+  const [showDeletePlanDialog, setShowDeletePlanDialog] = useState(false)
+  const [showDeletePaymentDialog, setShowDeletePaymentDialog] = useState(false)
+  const [planToDelete, setPlanToDelete] = useState<{ id: number; name: string } | null>(null)
+  const [paymentToDelete, setPaymentToDelete] = useState<{ id: number; payment_type: string } | null>(null)
   const { toast } = useToast()
 
   useEffect(() => {
@@ -37,11 +51,21 @@ export function VipSettings() {
       if (plansRes.ok) {
         const plans = await plansRes.json()
         setVipPlans(plans)
+      } else {
+        const body = await plansRes.json().catch(() => ({}))
+        throw new Error(body.detail ?? "加载VIP套餐失败")
       }
       if (configsRes.ok) {
         const configs = await configsRes.json()
         setPaymentConfigs(configs)
+      } else {
+        const body = await configsRes.json().catch(() => ({}))
+        throw new Error(body.detail ?? "加载支付配置失败")
       }
+      toast({
+        title: "加载成功",
+        description: "VIP套餐和支付配置已加载",
+      })
     } catch (error) {
       toast({
         title: "加载失败",
@@ -82,13 +106,25 @@ export function VipSettings() {
     }
   }
 
-  const handleDeletePlan = async (id: number) => {
-    if (!confirm("确定要删除这个套餐吗？")) return
+  const handleDeletePlanClick = (plan: { id: number; name: string }) => {
+    setPlanToDelete(plan)
+    setShowDeletePlanDialog(true)
+  }
+
+  const handleDeletePlanConfirm = async () => {
+    if (!planToDelete) return
     try {
-      setDeletingPlanId(id)
-      const res = await fetch(`/api/vip-plans/${id}`, { method: "DELETE" })
-      if (!res.ok) throw new Error("删除失败")
-      toast({ title: "删除成功" })
+      setDeletingPlanId(planToDelete.id)
+      setShowDeletePlanDialog(false)
+      const res = await fetch(`/api/vip-plans/${planToDelete.id}`, { method: "DELETE" })
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        throw new Error(body.detail ?? "删除失败")
+      }
+      toast({ 
+        title: "删除成功",
+        description: `套餐 "${planToDelete.name}" 已删除`,
+      })
       await loadData()
     } catch (error) {
       toast({
@@ -98,6 +134,7 @@ export function VipSettings() {
       })
     } finally {
       setDeletingPlanId(null)
+      setPlanToDelete(null)
     }
   }
 
@@ -130,13 +167,25 @@ export function VipSettings() {
     }
   }
 
-  const handleDeletePayment = async (id: number) => {
-    if (!confirm("确定要删除这个支付配置吗？")) return
+  const handleDeletePaymentClick = (config: { id: number; payment_type: string }) => {
+    setPaymentToDelete(config)
+    setShowDeletePaymentDialog(true)
+  }
+
+  const handleDeletePaymentConfirm = async () => {
+    if (!paymentToDelete) return
     try {
-      setDeletingPaymentId(id)
-      const res = await fetch(`/api/payment-configs/${id}`, { method: "DELETE" })
-      if (!res.ok) throw new Error("删除失败")
-      toast({ title: "删除成功" })
+      setDeletingPaymentId(paymentToDelete.id)
+      setShowDeletePaymentDialog(false)
+      const res = await fetch(`/api/payment-configs/${paymentToDelete.id}`, { method: "DELETE" })
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        throw new Error(body.detail ?? "删除失败")
+      }
+      toast({ 
+        title: "删除成功",
+        description: `${paymentToDelete.payment_type === "wechat" ? "微信" : "支付宝"}支付配置已删除`,
+      })
       await loadData()
     } catch (error) {
       toast({
@@ -146,6 +195,7 @@ export function VipSettings() {
       })
     } finally {
       setDeletingPaymentId(null)
+      setPaymentToDelete(null)
     }
   }
 
@@ -191,8 +241,8 @@ export function VipSettings() {
                     <Button
                       size="sm"
                       variant="destructive"
-                      onClick={() => handleDeletePlan(plan.id)}
-                      disabled={deletingPlanId === plan.id}
+                      onClick={() => handleDeletePlanClick({ id: plan.id, name: plan.name })}
+                      disabled={deletingPlanId === plan.id || loading}
                     >
                       {deletingPlanId === plan.id && <Spinner className="mr-1" />}
                       删除
@@ -200,7 +250,14 @@ export function VipSettings() {
                   </div>
                 </div>
               ))}
-              <Button onClick={() => setShowPlanForm(true)} className="w-full" disabled={savingPlan}>
+              <Button 
+                onClick={() => {
+                  setEditingPlan(null)
+                  setShowPlanForm(true)
+                }} 
+                className="w-full" 
+                disabled={savingPlan || loading}
+              >
                 {savingPlan && <Spinner className="mr-2" />}
                 添加套餐
               </Button>
@@ -248,8 +305,8 @@ export function VipSettings() {
                         <Button
                           size="sm"
                           variant="destructive"
-                          onClick={() => handleDeletePayment(wechatConfig.id)}
-                          disabled={deletingPaymentId === wechatConfig.id}
+                          onClick={() => handleDeletePaymentClick({ id: wechatConfig.id, payment_type: wechatConfig.payment_type })}
+                          disabled={deletingPaymentId === wechatConfig.id || loading}
                         >
                           {deletingPaymentId === wechatConfig.id && <Spinner className="mr-1" />}
                           删除
@@ -264,7 +321,7 @@ export function VipSettings() {
                         setEditingPayment({ payment_type: "wechat" })
                         setShowPaymentForm(true)
                       }}
-                      disabled={savingPayment}
+                      disabled={savingPayment || loading}
                     >
                       {savingPayment && <Spinner className="mr-2" />}
                       添加微信支付
@@ -296,8 +353,8 @@ export function VipSettings() {
                         <Button
                           size="sm"
                           variant="destructive"
-                          onClick={() => handleDeletePayment(alipayConfig.id)}
-                          disabled={deletingPaymentId === alipayConfig.id}
+                          onClick={() => handleDeletePaymentClick({ id: alipayConfig.id, payment_type: alipayConfig.payment_type })}
+                          disabled={deletingPaymentId === alipayConfig.id || loading}
                         >
                           {deletingPaymentId === alipayConfig.id && <Spinner className="mr-1" />}
                           删除
@@ -312,7 +369,7 @@ export function VipSettings() {
                         setEditingPayment({ payment_type: "alipay" })
                         setShowPaymentForm(true)
                       }}
-                      disabled={savingPayment}
+                      disabled={savingPayment || loading}
                     >
                       {savingPayment && <Spinner className="mr-2" />}
                       添加支付宝
@@ -350,6 +407,52 @@ export function VipSettings() {
           }}
         />
       )}
+
+      {/* 删除套餐确认对话框 */}
+      <AlertDialog open={showDeletePlanDialog} onOpenChange={setShowDeletePlanDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>确认删除套餐</AlertDialogTitle>
+            <AlertDialogDescription>
+              确定要删除套餐 "<strong>{planToDelete?.name}</strong>" 吗？此操作无法撤销。
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deletingPlanId !== null}>取消</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeletePlanConfirm}
+              disabled={deletingPlanId !== null}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deletingPlanId !== null && <Spinner className="mr-2" />}
+              删除
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* 删除支付配置确认对话框 */}
+      <AlertDialog open={showDeletePaymentDialog} onOpenChange={setShowDeletePaymentDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>确认删除支付配置</AlertDialogTitle>
+            <AlertDialogDescription>
+              确定要删除{paymentToDelete?.payment_type === "wechat" ? "微信" : "支付宝"}支付配置吗？此操作无法撤销。
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deletingPaymentId !== null}>取消</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeletePaymentConfirm}
+              disabled={deletingPaymentId !== null}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deletingPaymentId !== null && <Spinner className="mr-2" />}
+              删除
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   )
 }
@@ -443,9 +546,9 @@ function PlanFormDialog({
             <div className="flex gap-2">
               <Button type="submit" className="flex-1" disabled={loading}>
                 {loading && <Spinner className="mr-2" />}
-                保存
+                {loading ? "保存中..." : "保存"}
               </Button>
-              <Button type="button" variant="outline" onClick={onClose} className="flex-1">
+              <Button type="button" variant="outline" onClick={onClose} className="flex-1" disabled={loading}>
                 取消
               </Button>
             </div>
@@ -545,9 +648,9 @@ function PaymentFormDialog({
             <div className="flex gap-2">
               <Button type="submit" className="flex-1" disabled={loading}>
                 {loading && <Spinner className="mr-2" />}
-                保存
+                {loading ? "保存中..." : "保存"}
               </Button>
-              <Button type="button" variant="outline" onClick={onClose} className="flex-1">
+              <Button type="button" variant="outline" onClick={onClose} className="flex-1" disabled={loading}>
                 取消
               </Button>
             </div>

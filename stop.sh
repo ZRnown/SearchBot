@@ -36,9 +36,15 @@ if [ -f ".frontend.pid" ]; then
 fi
 
 # 清理可能残留的进程
+echo "   清理可能残留的进程..."
 pkill -f "uvicorn src.web:app" 2>/dev/null || true
+pkill -f "python.*src.bot" 2>/dev/null || true
 pkill -f "python -m src.bot" 2>/dev/null || true
+pkill -f "python3.*src.bot" 2>/dev/null || true
 pkill -f "next dev" 2>/dev/null || true
+
+# 等待进程完全终止
+sleep 2
 
 # 清理 Next.js 锁文件
 if [ -d ".next/dev" ]; then

@@ -8,6 +8,7 @@ from aiogram import Bot, Dispatcher, F, Router
 from aiogram.client.default import DefaultBotProperties
 from aiogram.filters import Command
 from aiogram.types import CallbackQuery, InputMediaPhoto, LinkPreviewOptions, Message, User as TelegramUser
+from aiogram.exceptions import TelegramConflictError
 
 from .config import settings
 from .db import PaymentConfig, Resource, SearchButton, User, VipPlan, db_session, init_db
@@ -266,7 +267,7 @@ async def respond_with_results(
             resources=result.rows,
             page_index=page,
             total_pages=result.total_pages,
-            reference_time=datetime.utcnow(),
+            reference_time=datetime.now(timezone.utc),
         )
         # 获取发起搜索的用户ID
         search_user_id = (query.from_user.id if query else (message.from_user.id if message and message.from_user else None))
@@ -561,6 +562,10 @@ async def main():
         except Exception as e:
             print(f"[Bot] ⚠️  清除 webhook 时出错（可能没有 webhook）: {e}")
         
+        # 等待一段时间，确保之前的实例完全关闭
+        print(f"[Bot] 等待 3 秒以确保之前的实例完全关闭...")
+        await asyncio.sleep(3)
+        
         # 检查是否有其他实例在运行
         try:
             me = await bot.get_me()
@@ -585,7 +590,25 @@ async def main():
         print(f"[Bot] 机器人 Token: {settings.bot_token[:10]}...")
         print(f"[Bot] 开始轮询更新...")
         print(f"[Bot] ==================================")
-        await dp.start_polling(bot, drop_pending_updates=True)
+        
+        try:
+            await dp.start_polling(bot, drop_pending_updates=True)
+        except TelegramConflictError as e:
+            print(f"[Bot] ❌ Telegram 冲突错误: {e}")
+            print(f"[Bot] ⚠️  检测到多个 bot 实例正在运行！")
+            print(f"[Bot] 💡 解决方案：")
+            print(f"[Bot]    1. 运行 ./stop.sh 停止所有服务")
+            print(f"[Bot]    2. 检查是否有其他进程在使用同一个 BOT_TOKEN:")
+            print(f"[Bot]       ps aux | grep 'python.*bot'")
+            print(f"[Bot]       ps aux | grep 'src.bot'")
+            print(f"[Bot]    3. 如果有其他进程，使用 kill <PID> 终止它们")
+            print(f"[Bot]    4. 等待 10-30 秒后重新启动")
+            print(f"[Bot]    5. 如果问题持续，检查是否有 webhook 设置:")
+            print(f"[Bot]       运行: python clear_webhook.py")
+            raise
+    except TelegramConflictError:
+        # 已经在上面的 except 块中处理了，直接重新抛出
+        raise
     except Exception as e:
         print(f"[Bot] 启动失败: {e}")
         import traceback

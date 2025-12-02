@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 from uuid import uuid4
 
@@ -11,6 +11,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Integer,
+    JSON,
     String,
     Text,
     create_engine,
@@ -55,13 +56,14 @@ class Resource(Base):
     jump_url: Mapped[Optional[str]] = mapped_column(String(255))
     cover_file_id: Mapped[Optional[str]] = mapped_column(Text)
     preview_message_id: Mapped[Optional[int]] = mapped_column(BigInteger)
+    preview_message_ids: Mapped[Optional[list[int]]] = mapped_column(JSON, nullable=True)  # 存储媒体组的所有消息ID
     preview_url: Mapped[Optional[str]] = mapped_column(String(512))
     is_vip: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=datetime.utcnow
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc)
     )
 
     comic_files: Mapped[list["ComicFile"]] = relationship(
@@ -93,10 +95,10 @@ class User(Base):
     is_blocked: Mapped[bool] = mapped_column(Boolean, default=False)
     usage_quota: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=datetime.utcnow
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc)
     )
 
 
@@ -120,10 +122,10 @@ class AdminUser(Base):
     username: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=datetime.utcnow
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc)
     )
 
 
@@ -135,10 +137,10 @@ class SearchButton(Base):
     url: Mapped[str] = mapped_column(String(255), nullable=False)
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=datetime.utcnow
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc)
     )
 
 
@@ -153,10 +155,10 @@ class VipPlan(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)  # 是否启用
     sort_order: Mapped[int] = mapped_column(Integer, default=0)  # 排序
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=datetime.utcnow
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc)
     )
 
 
@@ -172,10 +174,10 @@ class PaymentConfig(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)  # 是否启用
     sort_order: Mapped[int] = mapped_column(Integer, default=0)  # 排序
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=datetime.utcnow
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc)
     )
 
 
@@ -203,6 +205,9 @@ def ensure_schema():
         if "preview_message_id" not in columns:
             with engine.begin() as conn:
                 conn.execute(text("ALTER TABLE resources ADD COLUMN preview_message_id BIGINT"))
+        if "preview_message_ids" not in columns:
+            with engine.begin() as conn:
+                conn.execute(text("ALTER TABLE resources ADD COLUMN preview_message_ids JSON"))
     if "comic_files" in tables:
         columns = {col["name"] for col in inspector.get_columns("comic_files")}
         if "storage_message_id" not in columns:

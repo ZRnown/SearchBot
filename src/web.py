@@ -5,7 +5,7 @@ import zipfile
 import tempfile
 import shutil
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Annotated, List, Optional
 from pathlib import Path
 
@@ -268,7 +268,7 @@ async def ensure_comic_preview_links() -> None:
 
 def create_access_token(*, subject: str, expires_delta: Optional[timedelta] = None) -> str:
     to_encode = {"sub": subject}
-    expire = datetime.utcnow() + (
+    expire = datetime.now(timezone.utc) + (
         expires_delta or timedelta(minutes=settings.security.token_expire_minutes)
     )
     to_encode.update({"exp": expire})
@@ -372,6 +372,43 @@ async def send_photo_with_retry(
             else:
                 raise
     raise Exception(f"发送图片失败，已重试 {max_retries} 次")
+
+
+async def delete_message_with_retry(
+    bot: Bot,
+    chat_id: int,
+    message_id: int,
+    max_retries: int = 3,
+    initial_delay: float = 1.0,
+) -> bool:
+    """删除消息，带重试机制和 Flood control 处理
+    
+    Returns:
+        bool: True 如果删除成功，False 如果消息不存在或已被删除
+    """
+    for attempt in range(max_retries):
+        try:
+            await bot.delete_message(chat_id=chat_id, message_id=message_id)
+            return True
+        except TelegramRetryAfter as e:
+            wait_time = e.retry_after + 1  # 多等1秒
+            logger.warning(f"删除消息触发 Flood control，等待 {wait_time} 秒后重试 (尝试 {attempt + 1}/{max_retries}, message_id={message_id})")
+            await asyncio.sleep(wait_time)
+        except TelegramAPIError as e:
+            error_message = str(e).lower()
+            # 消息不存在或已被删除，这是正常的
+            if "message to delete not found" in error_message or "message can't be deleted" in error_message:
+                logger.info(f"消息 {message_id} 不存在或已被删除（正常情况）")
+                return False
+            # 其他错误，如果是最后一次尝试则返回 False，否则重试
+            if attempt < max_retries - 1:
+                wait_time = initial_delay * (2 ** attempt)  # 指数退避
+                logger.warning(f"删除消息失败，{wait_time} 秒后重试 (尝试 {attempt + 1}/{max_retries}, message_id={message_id}): {e}")
+                await asyncio.sleep(wait_time)
+            else:
+                logger.error(f"删除消息失败，已重试 {max_retries} 次 (message_id={message_id}): {e}")
+                return False
+    return False
 
 
 def format_channel_id_for_link(channel_id: int) -> str:
@@ -494,16 +531,34 @@ async def delete_resource(
         if not resource:
             raise HTTPException(status_code=404, detail="Resource not found")
         
-        # 删除预览频道的消息
-        if resource.preview_message_id:
-            try:
-                await admin_bot.delete_message(
-                    chat_id=settings.channels.comic_preview_channel_id,
-                    message_id=resource.preview_message_id,
-                )
-                logger.info(f"已删除预览频道消息: {resource.preview_message_id}")
-            except Exception as e:
-                logger.warning(f"删除预览频道消息失败: {e} (消息可能已被删除)")
+        # 删除预览频道的消息（支持媒体组，删除所有消息）
+        preview_message_ids_to_delete = []
+        if resource.preview_message_ids:
+            # 如果有 preview_message_ids（新格式），使用它
+            preview_message_ids_to_delete = resource.preview_message_ids
+        elif resource.preview_message_id:
+            # 向后兼容：只有 preview_message_id（旧格式）
+            preview_message_ids_to_delete = [resource.preview_message_id]
+        
+        deleted_count = 0
+        failed_count = 0
+        for msg_id in preview_message_ids_to_delete:
+            deleted = await delete_message_with_retry(
+                bot=admin_bot,
+                chat_id=settings.channels.comic_preview_channel_id,
+                message_id=msg_id,
+            )
+            if deleted:
+                deleted_count += 1
+                logger.info(f"已删除预览频道消息: {msg_id}")
+            else:
+                failed_count += 1
+                logger.warning(f"预览频道消息 {msg_id} 删除失败或不存在")
+            # 添加小延迟避免触发速率限制
+            await asyncio.sleep(0.1)
+        
+        if preview_message_ids_to_delete:
+            logger.info(f"预览频道消息删除完成: 成功 {deleted_count}/{len(preview_message_ids_to_delete)}，失败 {failed_count}")
         
         # 对于漫画类型，删除仓库频道的消息
         if resource.type == "comic":
@@ -517,19 +572,19 @@ async def delete_resource(
             
             for comic_file in comic_files:
                 if comic_file.storage_message_id:
-                    try:
-                        await admin_bot.delete_message(
-                            chat_id=settings.channels.storage_channel_id,
-                            message_id=comic_file.storage_message_id,
-                        )
+                    deleted = await delete_message_with_retry(
+                        bot=admin_bot,
+                        chat_id=settings.channels.storage_channel_id,
+                        message_id=comic_file.storage_message_id,
+                    )
+                    if deleted:
                         deleted_count += 1
                         logger.info(f"已删除仓库频道消息: {comic_file.storage_message_id}")
-                        # 添加小延迟避免触发速率限制
-                        await asyncio.sleep(0.1)
-                    except Exception as e:
+                    else:
                         failed_count += 1
-                        # 消息可能已被删除，这是正常的，只记录警告
-                        logger.warning(f"删除仓库频道消息失败 (message_id={comic_file.storage_message_id}): {e} (消息可能已被删除)")
+                        logger.warning(f"仓库频道消息 {comic_file.storage_message_id} 删除失败或不存在")
+                    # 添加小延迟避免触发速率限制
+                    await asyncio.sleep(0.1)
                 else:
                     logger.warning(f"文件 {comic_file.id} (order={comic_file.order}) 没有 storage_message_id，无法删除")
             
@@ -547,17 +602,34 @@ async def batch_delete_resources(
     with db_session() as session:
         resources = session.query(Resource).filter(Resource.id.in_(resource_ids)).all()
         for resource in resources:
-            # 删除预览频道的消息
-            if resource.preview_message_id:
-                try:
-                    await admin_bot.delete_message(
-                        chat_id=settings.channels.comic_preview_channel_id,
-                        message_id=resource.preview_message_id,
-                    )
-                    logger.info(f"已删除预览频道消息: {resource.preview_message_id}")
-                except Exception as e:
-                    # 消息可能已被删除，这是正常的，只记录警告
-                    logger.warning(f"删除预览频道消息失败: {e} (消息可能已被删除)")
+            # 删除预览频道的消息（支持媒体组，删除所有消息）
+            preview_message_ids_to_delete = []
+            if resource.preview_message_ids:
+                # 如果有 preview_message_ids（新格式），使用它
+                preview_message_ids_to_delete = resource.preview_message_ids
+            elif resource.preview_message_id:
+                # 向后兼容：只有 preview_message_id（旧格式）
+                preview_message_ids_to_delete = [resource.preview_message_id]
+            
+            deleted_count = 0
+            failed_count = 0
+            for msg_id in preview_message_ids_to_delete:
+                deleted = await delete_message_with_retry(
+                    bot=admin_bot,
+                    chat_id=settings.channels.comic_preview_channel_id,
+                    message_id=msg_id,
+                )
+                if deleted:
+                    deleted_count += 1
+                    logger.info(f"已删除预览频道消息: {msg_id}")
+                else:
+                    failed_count += 1
+                    logger.warning(f"预览频道消息 {msg_id} 删除失败或不存在")
+                # 添加小延迟避免触发速率限制
+                await asyncio.sleep(0.1)
+            
+            if preview_message_ids_to_delete:
+                logger.info(f"资源 {resource.id} 预览频道消息删除完成: 成功 {deleted_count}/{len(preview_message_ids_to_delete)}，失败 {failed_count}")
             
             # 对于漫画类型，删除仓库频道的消息
             if resource.type == "comic":
@@ -571,19 +643,19 @@ async def batch_delete_resources(
                 
                 for comic_file in comic_files:
                     if comic_file.storage_message_id:
-                        try:
-                            await admin_bot.delete_message(
-                                chat_id=settings.channels.storage_channel_id,
-                                message_id=comic_file.storage_message_id,
-                            )
+                        deleted = await delete_message_with_retry(
+                            bot=admin_bot,
+                            chat_id=settings.channels.storage_channel_id,
+                            message_id=comic_file.storage_message_id,
+                        )
+                        if deleted:
                             deleted_count += 1
                             logger.info(f"已删除仓库频道消息: {comic_file.storage_message_id}")
-                            # 添加小延迟避免触发速率限制
-                            await asyncio.sleep(0.1)
-                        except Exception as e:
+                        else:
                             failed_count += 1
-                            # 消息可能已被删除，这是正常的，只记录警告
-                            logger.warning(f"删除仓库频道消息失败 (message_id={comic_file.storage_message_id}): {e} (消息可能已被删除)")
+                            logger.warning(f"仓库频道消息 {comic_file.storage_message_id} 删除失败或不存在")
+                        # 添加小延迟避免触发速率限制
+                        await asyncio.sleep(0.1)
                     else:
                         logger.warning(f"文件 {comic_file.id} (order={comic_file.order}) 没有 storage_message_id，无法删除")
                 
@@ -805,14 +877,16 @@ async def upload_comic(
                 logger.error(f"发送预览图片失败: {e}")
                 # 预览失败不影响主流程，继续执行
         
-            # 如果有预览消息，使用第一个预览消息的链接并保存 message_id
-            if preview_messages:
-                preview_msg_id = preview_messages[0].message_id
-                resource.preview_message_id = preview_msg_id
-                formatted_id = format_channel_id_for_link(settings.channels.comic_preview_channel_id)
-                resource.preview_url = f"https://t.me/c/{formatted_id}/{preview_msg_id}"
-            else:
-                resource.preview_url = deep_link
+        # 如果有预览消息，使用第一个预览消息的链接并保存所有 message_id
+        if preview_messages:
+            preview_msg_id = preview_messages[0].message_id
+            preview_msg_ids = [msg.message_id for msg in preview_messages]
+            resource.preview_message_id = preview_msg_id  # 向后兼容
+            resource.preview_message_ids = preview_msg_ids  # 存储所有消息ID
+            formatted_id = format_channel_id_for_link(settings.channels.comic_preview_channel_id)
+            resource.preview_url = f"https://t.me/c/{formatted_id}/{preview_msg_id}"
+        else:
+            resource.preview_url = deep_link
             
             for order, file_data in enumerate(stored_file_ids, start=1):
                 if isinstance(file_data, tuple):
@@ -1150,10 +1224,12 @@ async def upload_comic_archive(
                     logger.error(f"发送预览图片失败: {e}")
                     # 预览失败不影响主流程，继续执行
             
-            # 如果有预览消息，使用第一个预览消息的链接并保存 message_id
+            # 如果有预览消息，使用第一个预览消息的链接并保存所有 message_id
             if preview_messages:
                 preview_msg_id = preview_messages[0].message_id
-                resource.preview_message_id = preview_msg_id
+                preview_msg_ids = [msg.message_id for msg in preview_messages]
+                resource.preview_message_id = preview_msg_id  # 向后兼容
+                resource.preview_message_ids = preview_msg_ids  # 存储所有消息ID
                 formatted_id = format_channel_id_for_link(settings.channels.comic_preview_channel_id)
                 resource.preview_url = f"https://t.me/c/{formatted_id}/{preview_msg_id}"
             else:
@@ -1453,7 +1529,9 @@ async def batch_upload_comic_archives(
                     
                     if preview_messages:
                         preview_msg_id = preview_messages[0].message_id
-                        resource.preview_message_id = preview_msg_id
+                        preview_msg_ids = [msg.message_id for msg in preview_messages]
+                        resource.preview_message_id = preview_msg_id  # 向后兼容
+                        resource.preview_message_ids = preview_msg_ids  # 存储所有消息ID
                         formatted_id = format_channel_id_for_link(settings.channels.comic_preview_channel_id)
                         resource.preview_url = f"https://t.me/c/{formatted_id}/{preview_msg_id}"
                     else:

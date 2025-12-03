@@ -177,51 +177,132 @@ export async function uploadComicArchive(payload: {
   isVip: boolean
   archive: File
   previewCount?: number
+  onProgress?: (progress: { loaded: number; total: number; percentage: number }) => void
 }) {
-  const form = new FormData()
-  form.append("title", payload.title)
-  form.append("is_vip", String(payload.isVip))
-  form.append("archive", payload.archive, payload.archive.name)
-  form.append("preview_count", String(payload.previewCount ?? 5))
-  const response = await fetch("/api/resources/comics/archive", {
-    method: "POST",
-    body: form,
-    // 增加超时时间以支持大文件上传（5分钟）
-    signal: AbortSignal.timeout(5 * 60 * 1000),
+  return new Promise<ComicUploadResult>((resolve, reject) => {
+    const form = new FormData()
+    form.append("title", payload.title)
+    form.append("is_vip", String(payload.isVip))
+    form.append("archive", payload.archive, payload.archive.name)
+    form.append("preview_count", String(payload.previewCount ?? 5))
+
+    const xhr = new XMLHttpRequest()
+
+    // 上传进度事件
+    xhr.upload.addEventListener("progress", (e) => {
+      if (e.lengthComputable && payload.onProgress) {
+        const percentage = Math.round((e.loaded / e.total) * 100)
+        payload.onProgress({
+          loaded: e.loaded,
+          total: e.total,
+          percentage,
+        })
+      }
+    })
+
+    // 请求完成事件
+    xhr.addEventListener("load", () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try {
+          const data = JSON.parse(xhr.responseText)
+          resolve({
+            id: data.id,
+            pages: data.pages,
+            deepLink: data.deep_link,
+            previewLink: data.preview_link,
+          })
+        } catch (error) {
+          reject(new Error("解析响应失败"))
+        }
+      } else {
+        const errorText = xhr.responseText || `请求失败，状态码: ${xhr.status}`
+        reject(new Error(errorText))
+      }
+    })
+
+    // 错误事件
+    xhr.addEventListener("error", () => {
+      reject(new Error("网络错误"))
+    })
+
+    // 超时事件（30分钟超时，支持大文件上传）
+    xhr.timeout = 30 * 60 * 1000 // 30分钟
+    xhr.addEventListener("timeout", () => {
+      reject(new Error("上传超时，请检查网络连接或文件大小"))
+    })
+
+    xhr.open("POST", "/api/resources/comics/archive")
+    // Cookie会自动发送，不需要手动设置Authorization header
+    xhr.send(form)
   })
-  const data = await handleJson<any>(response)
-  return {
-    id: data.id,
-    pages: data.pages,
-    deepLink: data.deep_link,
-    previewLink: data.preview_link,
-  } as ComicUploadResult
 }
 
 export async function batchUploadComicArchives(payload: {
   archives: File[]
   isVip: boolean
   previewCount?: number
+  onProgress?: (progress: { loaded: number; total: number; percentage: number; currentFile?: number; totalFiles?: number }) => void
 }) {
-  const form = new FormData()
-  form.append("is_vip", String(payload.isVip))
-  form.append("preview_count", String(payload.previewCount ?? 5))
-  payload.archives.forEach((archive) => {
-    form.append("archives", archive, archive.name)
+  return new Promise<ComicUploadResult[]>((resolve, reject) => {
+    const form = new FormData()
+    form.append("is_vip", String(payload.isVip))
+    form.append("preview_count", String(payload.previewCount ?? 5))
+    payload.archives.forEach((archive) => {
+      form.append("archives", archive, archive.name)
+    })
+
+    const xhr = new XMLHttpRequest()
+
+    // 上传进度事件
+    xhr.upload.addEventListener("progress", (e) => {
+      if (e.lengthComputable && payload.onProgress) {
+        const percentage = Math.round((e.loaded / e.total) * 100)
+        payload.onProgress({
+          loaded: e.loaded,
+          total: e.total,
+          percentage,
+          totalFiles: payload.archives.length,
+        })
+      }
+    })
+
+    // 请求完成事件
+    xhr.addEventListener("load", () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try {
+          const data = JSON.parse(xhr.responseText)
+          resolve(
+            data.map((item: any) => ({
+              id: item.id,
+              pages: item.pages,
+              deepLink: item.deep_link,
+              previewLink: item.preview_link || item.deep_link,
+            }))
+          )
+        } catch (error) {
+          reject(new Error("解析响应失败"))
+        }
+      } else {
+        const errorText = xhr.responseText || `请求失败，状态码: ${xhr.status}`
+        reject(new Error(errorText))
+      }
+    })
+
+    // 错误事件
+    xhr.addEventListener("error", () => {
+      reject(new Error("网络错误"))
+    })
+
+    // 超时事件（60分钟超时，支持大文件批量上传）
+    xhr.timeout = 60 * 60 * 1000 // 60分钟
+    xhr.addEventListener("timeout", () => {
+      reject(new Error("上传超时，请检查网络连接或文件大小"))
+    })
+
+    xhr.open("POST", "/api/resources/comics/batch-archive")
+    // Cookie会自动发送，不需要手动设置Authorization header
+    xhr.send(form)
   })
-  const response = await fetch("/api/resources/comics/batch-archive", {
-    method: "POST",
-    body: form,
-    // 增加超时时间以支持大文件批量上传（10分钟）
-    signal: AbortSignal.timeout(10 * 60 * 1000),
-  })
-  const data = await handleJson<any[]>(response)
-  return data.map((item) => ({
-    id: item.id,
-    pages: item.pages,
-    deepLink: item.deep_link,
-    previewLink: item.preview_link || item.deep_link,
-  })) as ComicUploadResult[]
 }
 
 export async function getComicFiles(resourceId: string) {

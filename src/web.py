@@ -1104,16 +1104,20 @@ async def upload_comic_archive(
         # 流式读取，避免一次性加载到内存
         chunk_size = 1024 * 1024  # 1MB chunks
         total_size = 0
-        max_size = 500 * 1024 * 1024  # 500MB 限制
+        # 移除文件大小限制，支持大文件上传（2GB+）
+        max_size = 2 * 1024 * 1024 * 1024  # 2GB 限制（可根据需要调整）
         while True:
             chunk = await archive.read(chunk_size)
             if not chunk:
                 break
             total_size += len(chunk)
             if total_size > max_size:
-                raise HTTPException(status_code=413, detail=f"文件大小超过限制 ({max_size / 1024 / 1024:.0f}MB)")
+                raise HTTPException(status_code=413, detail=f"文件大小超过限制 ({max_size / 1024 / 1024 / 1024:.1f}GB)")
             tmp_archive.write(chunk)
             tmp_archive.flush()  # 立即刷新缓冲区
+            # 每 100MB 记录一次进度
+            if total_size % (100 * 1024 * 1024) < chunk_size:
+                logger.info(f"接收进度: {total_size / 1024 / 1024:.2f}MB")
         
         # 确保所有数据都写入磁盘
         tmp_archive.flush()
@@ -1341,7 +1345,8 @@ async def batch_upload_comic_archives(
                     tmp_archive_path = Path(tmp_archive.name)
                     # 流式读取，避免一次性加载到内存
                     chunk_size = 1024 * 1024  # 1MB chunks
-                    max_size = 500 * 1024 * 1024  # 500MB 限制
+                    # 移除文件大小限制，支持大文件上传（2GB+）
+                    max_size = 2 * 1024 * 1024 * 1024  # 2GB 限制（可根据需要调整）
                     chunk_count = 0
                     while True:
                         chunk = await archive.read(chunk_size)
@@ -1350,14 +1355,14 @@ async def batch_upload_comic_archives(
                         chunk_count += 1
                         total_size += len(chunk)
                         if total_size > max_size:
-                            logger.warning(f"跳过 {archive.filename}: 文件大小超过限制 ({max_size / 1024 / 1024:.0f}MB)")
+                            logger.warning(f"跳过 {archive.filename}: 文件大小超过限制 ({max_size / 1024 / 1024 / 1024:.1f}GB)")
                             file_too_large = True
                             # 跳出循环，跳过这个文件
                             break
                         tmp_archive.write(chunk)
                         tmp_archive.flush()  # 立即刷新缓冲区，确保数据写入磁盘
-                        # 每 10MB 记录一次进度
-                        if chunk_count % 10 == 0:
+                        # 每 100MB 记录一次进度
+                        if total_size % (100 * 1024 * 1024) < chunk_size:
                             logger.info(f"接收进度 {archive.filename}: {total_size / 1024 / 1024:.2f}MB")
                     
                     # 确保所有数据都写入磁盘

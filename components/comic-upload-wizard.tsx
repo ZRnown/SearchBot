@@ -8,10 +8,11 @@ import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
 import { Badge } from "@/components/ui/badge"
 import { UploadDropzone } from "./upload-dropzone"
-import { Heart, ChevronRight, ChevronLeft, Check, Link2, Copy, Archive, Upload, X, GripVertical, Save, List } from "lucide-react"
+import { Heart, ChevronRight, ChevronLeft, Check, Link2, Copy, Archive, Upload, X, GripVertical, Save, List, Loader2 } from "lucide-react"
 import { uploadComic, uploadComicArchive, batchUploadComicArchives, updateResource } from "@/lib/api"
 import { ComicFilesManager } from "./comic-files-manager"
 import { useToast } from "@/components/ui/use-toast"
+import { Progress } from "@/components/ui/progress"
 import JSZip from "jszip"
 
 type Step = 1 | 2 | 3
@@ -35,6 +36,8 @@ export function ComicUploadWizard({ className = "" }: { className?: string } = {
   const [uploadResults, setUploadResults] = useState<Array<{ id: string; title: string; originalFileName: string; order: number; pages: number; deepLink: string; previewLink: string }>>([])
   const [editingTitles, setEditingTitles] = useState<Record<string, string>>({})
   const [isUploading, setIsUploading] = useState(false)
+  const [uploadProgress, setUploadProgress] = useState<{ loaded: number; total: number; percentage: number } | null>(null)
+  const [uploadStatus, setUploadStatus] = useState<string>("")
   const [comicFilesManagerOpen, setComicFilesManagerOpen] = useState(false)
   const [selectedComicId, setSelectedComicId] = useState<string>("")
   const { toast } = useToast()
@@ -49,11 +52,21 @@ export function ComicUploadWizard({ className = "" }: { className?: string } = {
     if (!canProceedStep1 || !canProceedStep2 || isUploading) return
     try {
       setIsUploading(true)
+      setUploadProgress(null)
+      setUploadStatus("准备上传...")
+      
       if (uploadMode === "batch-archive" && archives.length > 0) {
+        setUploadStatus(`正在上传 ${archives.length} 个压缩包...`)
         const results = await batchUploadComicArchives({
           archives,
           isVip,
           previewCount: 5,
+          onProgress: (progress) => {
+            setUploadProgress(progress)
+            const uploadedMB = (progress.loaded / 1024 / 1024).toFixed(2)
+            const totalMB = (progress.total / 1024 / 1024).toFixed(2)
+            setUploadStatus(`上传中: ${uploadedMB}MB / ${totalMB}MB (${progress.percentage}%)`)
+          },
         })
         const resultsWithTitles = results.map((r, idx) => ({
           id: r.id,
@@ -79,13 +92,22 @@ export function ComicUploadWizard({ className = "" }: { className?: string } = {
       } else {
         let result
         if (uploadMode === "archive" && archive) {
+          setUploadStatus("正在上传压缩包...")
           result = await uploadComicArchive({
             title: title.trim(),
             isVip,
             archive,
             previewCount: 5,
+            onProgress: (progress) => {
+              setUploadProgress(progress)
+              const uploadedMB = (progress.loaded / 1024 / 1024).toFixed(2)
+              const totalMB = (progress.total / 1024 / 1024).toFixed(2)
+              setUploadStatus(`上传中: ${uploadedMB}MB / ${totalMB}MB (${progress.percentage}%)`)
+            },
           })
+          setUploadStatus("上传完成，正在解压并处理...")
         } else {
+          setUploadStatus("正在上传图片...")
           result = await uploadComic({
             title: title.trim(),
             isVip,
@@ -110,6 +132,8 @@ export function ComicUploadWizard({ className = "" }: { className?: string } = {
       })
     } finally {
       setIsUploading(false)
+      setUploadProgress(null)
+      setUploadStatus("")
     }
   }
 
@@ -201,6 +225,8 @@ export function ComicUploadWizard({ className = "" }: { className?: string } = {
     setDeepLink("")
     setPreviewLink("")
     setUploadResults([])
+    setUploadProgress(null)
+    setUploadStatus("")
     // 清理 URL
     archiveImages.forEach(img => URL.revokeObjectURL(img.url))
   }
@@ -486,14 +512,44 @@ export function ComicUploadWizard({ className = "" }: { className?: string } = {
               </div>
             )}
 
+            {isUploading && (
+              <div className="space-y-3 p-4 bg-muted rounded-lg">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                    <span className="text-sm font-medium">{uploadStatus || "上传中..."}</span>
+                  </div>
+                  {uploadProgress && (
+                    <span className="text-sm text-muted-foreground">{uploadProgress.percentage}%</span>
+                  )}
+                </div>
+                {uploadProgress && (
+                  <Progress value={uploadProgress.percentage} className="h-2" />
+                )}
+                {uploadProgress && (
+                  <div className="text-xs text-muted-foreground text-center">
+                    {(uploadProgress.loaded / 1024 / 1024).toFixed(2)} MB / {(uploadProgress.total / 1024 / 1024).toFixed(2)} MB
+                  </div>
+                )}
+              </div>
+            )}
             <div className="flex gap-3">
-              <Button variant="outline" onClick={() => setStep(1)} className="flex-1">
+              <Button variant="outline" onClick={() => setStep(1)} className="flex-1" disabled={isUploading}>
                 <ChevronLeft className="h-4 w-4 mr-2" />
                 返回
               </Button>
               <Button onClick={handleFinish} disabled={!canProceedStep2 || isUploading} className="flex-1">
-                {isUploading ? "上传中..." : "完成上传"}
-                <ChevronRight className="h-4 w-4 ml-2" />
+                {isUploading ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    上传中...
+                  </>
+                ) : (
+                  <>
+                    完成上传
+                    <ChevronRight className="h-4 w-4 ml-2" />
+                  </>
+                )}
               </Button>
             </div>
           </div>

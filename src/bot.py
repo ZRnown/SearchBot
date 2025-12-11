@@ -7,11 +7,12 @@ import json
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.client.default import DefaultBotProperties
 from aiogram.filters import Command
-from aiogram.types import CallbackQuery, InputMediaPhoto, LinkPreviewOptions, Message, User as TelegramUser
+from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto, LinkPreviewOptions, Message, User as TelegramUser
 from aiogram.exceptions import TelegramConflictError
 
 from .config import settings
-from .db import PaymentConfig, Resource, SearchButton, User, VipPlan, db_session, init_db
+from .db import PaymentOrder, Resource, SearchButton, SharkPaymentConfig, User, VipPlan, db_session, init_db
+from .services.payment_service import SharkPaymentService
 from .keyboards import build_comic_nav_keyboard, build_keyboard
 from .renderers import render_search_message
 from .repositories import ResourceRepository
@@ -197,6 +198,26 @@ async def handle_callback(query: CallbackQuery):
             user=query.from_user,
             resource_id=resource_id,
             page=page,
+            query=query,
+        )
+        return
+
+    if action == "buy_vip":
+        plan_id = payload.get("plan_id")
+        if not plan_id:
+            await query.answer("套餐ID丢失", show_alert=True)
+            return
+        
+        # 检查用户ID是否匹配
+        expected_user_id = payload.get("u")
+        if expected_user_id is None or (query.from_user and query.from_user.id != expected_user_id):
+            await query.answer("只有发送请求的用户才能操作", show_alert=True)
+            return
+        
+        await handle_buy_vip(
+            chat_id=query.message.chat.id,
+            user=query.from_user,
+            plan_id=plan_id,
             query=query,
         )
         return
@@ -421,23 +442,16 @@ async def send_comic_page(
                 is_vip = vip_expiry > now
 
             if not is_vip:
-                # 获取 VIP 套餐和支付信息
+                # 获取 VIP 套餐和支付配置
                 plans = (
                     session.query(VipPlan)
                     .filter(VipPlan.is_active == True)
                     .order_by(VipPlan.sort_order.asc(), VipPlan.id.asc())
                     .all()
                 )
-                wechat_config = (
-                    session.query(PaymentConfig)
-                    .filter(PaymentConfig.payment_type == "wechat", PaymentConfig.is_active == True)
-                    .order_by(PaymentConfig.sort_order.asc())
-                    .first()
-                )
-                alipay_config = (
-                    session.query(PaymentConfig)
-                    .filter(PaymentConfig.payment_type == "alipay", PaymentConfig.is_active == True)
-                    .order_by(PaymentConfig.sort_order.asc())
+                payment_config = (
+                    session.query(SharkPaymentConfig)
+                    .filter(SharkPaymentConfig.is_active == True)
                     .first()
                 )
                 
@@ -446,48 +460,37 @@ async def send_comic_page(
                 
                 if plans:
                     message_text += "💰 <b>VIP 套餐：</b>\n"
+                    buttons = []
                     for plan in plans:
                         message_text += f"• {plan.name}：¥{plan.price}（{plan.duration_days}天）\n"
+                        # 为每个套餐创建支付按钮
+                        if payment_config:
+                            buttons.append([
+                                InlineKeyboardButton(
+                                    text=f"💳 购买 {plan.name}",
+                                    callback_data=json.dumps({
+                                        "a": "buy_vip",
+                                        "plan_id": plan.id,
+                                        "u": user.id if user else 0,
+                                    })
+                                )
+                            ])
                     message_text += "\n"
                 
-                message_text += "💳 <b>支付方式：</b>\n"
-                if wechat_config:
-                    message_text += "📱 微信支付"
-                    if wechat_config.account_name:
-                        message_text += f" - {wechat_config.account_name}"
-                    if wechat_config.account_number:
-                        message_text += f"\n   账号：{wechat_config.account_number}"
-                    if wechat_config.qr_code_file_id:
-                        # 发送二维码图片
-                        try:
-                            await bot.send_photo(chat_id, photo=wechat_config.qr_code_file_id, caption="微信支付二维码")
-                        except Exception as e:
-                            print(f"[Bot] 发送微信二维码失败: {e}")
-                    message_text += "\n"
-                
-                if alipay_config:
-                    message_text += "💵 支付宝"
-                    if alipay_config.account_name:
-                        message_text += f" - {alipay_config.account_name}"
-                    if alipay_config.account_number:
-                        message_text += f"\n   账号：{alipay_config.account_number}"
-                    if alipay_config.qr_code_file_id:
-                        # 发送二维码图片
-                        try:
-                            await bot.send_photo(chat_id, photo=alipay_config.qr_code_file_id, caption="支付宝二维码")
-                        except Exception as e:
-                            print(f"[Bot] 发送支付宝二维码失败: {e}")
-                    message_text += "\n"
-                
-                if not wechat_config and not alipay_config:
+                if not payment_config:
                     # 如果没有配置支付信息，使用旧的充值链接
                     recharge_url = settings.vip_recharge_url
                     message_text += f"点击下方链接开通 VIP：\n{recharge_url}"
+                else:
+                    message_text += "💳 点击下方按钮选择套餐并完成支付\n"
+                
+                keyboard = InlineKeyboardMarkup(inline_keyboard=buttons) if buttons else None
                 
                 await bot.send_message(
                     chat_id,
                     message_text,
                     parse_mode="HTML",
+                    reply_markup=keyboard,
                 )
                 if query:
                     await query.answer("请先开通 VIP", show_alert=True)
@@ -545,6 +548,128 @@ async def send_comic_page(
             )
     if query:
         await query.answer()
+
+
+async def handle_buy_vip(
+    *,
+    chat_id: int,
+    user,
+    plan_id: int,
+    query: CallbackQuery | None = None,
+):
+    """处理购买VIP请求"""
+    import time
+    import httpx
+    
+    print(f"[Bot] ========== handle_buy_vip 开始 ==========")
+    print(f"[Bot] plan_id={plan_id}, user_id={user.id if user else 'None'}")
+    
+    with db_session() as session:
+        # 获取VIP套餐
+        vip_plan = session.get(VipPlan, plan_id)
+        if not vip_plan or not vip_plan.is_active:
+            await bot.send_message(chat_id, "套餐不存在或已停用。")
+            if query:
+                await query.answer("套餐不存在", show_alert=True)
+            return
+        
+        # 获取支付配置
+        payment_config = (
+            session.query(SharkPaymentConfig)
+            .filter(SharkPaymentConfig.is_active == True)
+            .first()
+        )
+        if not payment_config:
+            await bot.send_message(chat_id, "支付系统未配置，请联系管理员。")
+            if query:
+                await query.answer("支付系统未配置", show_alert=True)
+            return
+        
+        # 生成订单号
+        order_id = f"VIP{user.id}{int(time.time())}"
+        
+        # 创建订单记录
+        order = PaymentOrder(
+            order_id=order_id,
+            user_id=user.id,
+            vip_plan_id=plan_id,
+            amount=vip_plan.price,
+            status="unpaid",
+            channel_type=payment_config.channel_type,
+        )
+        session.add(order)
+        session.flush()
+        
+        # 调用支付接口创建订单
+        payment_service = SharkPaymentService(
+            merchant_id=payment_config.merchant_id,
+            sign_key=payment_config.sign_key,
+            api_base_url=payment_config.api_base_url,
+        )
+        
+        try:
+            result = await payment_service.create_order(
+                order_id=order_id,
+                order_amount=vip_plan.price,
+                notify_url=payment_config.notify_url,
+                channel_type=payment_config.channel_type,
+                return_url=payment_config.return_url,
+                payer_id=str(user.id),
+                order_title=f"VIP套餐-{vip_plan.name}",
+                order_body=f"购买{vip_plan.name}，有效期{vip_plan.duration_days}天",
+            )
+            
+            if result.get("code") != 200:
+                error_msg = result.get("msg", "创建订单失败")
+                await bot.send_message(chat_id, f"创建订单失败：{error_msg}")
+                if query:
+                    await query.answer("创建订单失败", show_alert=True)
+                return
+            
+            pay_url = result.get("data", {}).get("payUrl", "")
+            if not pay_url:
+                await bot.send_message(chat_id, "未获取到支付链接，请稍后重试。")
+                if query:
+                    await query.answer("获取支付链接失败", show_alert=True)
+                return
+            
+            # 更新订单支付链接
+            order.pay_url = pay_url
+            session.flush()
+            
+            # 发送支付链接
+            message_text = (
+                f"💰 <b>订单创建成功</b>\n\n"
+                f"📦 套餐：{vip_plan.name}\n"
+                f"💵 金额：¥{vip_plan.price}\n"
+                f"⏰ 有效期：{vip_plan.duration_days}天\n"
+                f"📋 订单号：{order_id}\n\n"
+                f"点击下方链接完成支付："
+            )
+            
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[[
+                InlineKeyboardButton(text="💳 立即支付", url=pay_url)
+            ]])
+            
+            await bot.send_message(
+                chat_id,
+                message_text,
+                parse_mode="HTML",
+                reply_markup=keyboard,
+            )
+            
+            if query:
+                await query.answer("订单已创建，请完成支付", show_alert=False)
+            
+            print(f"[Bot] ✅ 订单创建成功: order_id={order_id}, pay_url={pay_url}")
+            
+        except Exception as e:
+            print(f"[Bot] ❌ 创建支付订单失败: {e}")
+            import traceback
+            traceback.print_exc()
+            await bot.send_message(chat_id, f"创建订单失败：{str(e)}")
+            if query:
+                await query.answer("创建订单失败", show_alert=True)
 
 
 async def main():

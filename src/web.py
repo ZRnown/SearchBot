@@ -21,7 +21,7 @@ from aiogram import Bot
 from aiogram.client.default import DefaultBotProperties
 from aiogram.types import BufferedInputFile, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto
 from aiogram.exceptions import TelegramRetryAfter, TelegramAPIError
-from fastapi import Body, Depends, FastAPI, File, Form, HTTPException, Query, Response, UploadFile, Body
+from fastapi import Body, Depends, FastAPI, File, Form, HTTPException, Query, Request, Response, UploadFile, Body
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer
 from pydantic import BaseModel, Field
@@ -31,7 +31,8 @@ from passlib.context import CryptContext
 from sqlalchemy import String
 
 from .config import settings
-from .db import AdminUser, ComicFile, PaymentConfig, Resource, SearchButton, User, VipPlan, db_session, init_db
+from .db import AdminUser, ComicFile, PaymentOrder, Resource, SearchButton, SharkPaymentConfig, User, VipPlan, db_session, init_db
+from .services.payment_service import SharkPaymentService
 
 
 class ResourceResponse(BaseModel):
@@ -151,42 +152,68 @@ class VipPlanUpdateIn(BaseModel):
     sort_order: Optional[int] = None
 
 
-class PaymentConfigResponse(BaseModel):
+class SharkPaymentConfigResponse(BaseModel):
     id: int
-    payment_type: str
-    account_name: Optional[str]
-    account_number: Optional[str]
-    qr_code_url: Optional[str]
-    qr_code_file_id: Optional[str]
+    merchant_id: str
+    sign_key: str  # 不返回完整密钥，只返回部分
+    api_base_url: str
+    notify_url: str
+    return_url: Optional[str]
+    channel_type: Optional[str]
     is_active: bool
-    sort_order: int
     created_at: datetime
     updated_at: datetime
 
 
-class PaymentConfigCreateIn(BaseModel):
-    payment_type: str
-    account_name: Optional[str] = None
-    account_number: Optional[str] = None
-    qr_code_url: Optional[str] = None
-    qr_code_file_id: Optional[str] = None
+class SharkPaymentConfigCreateIn(BaseModel):
+    merchant_id: str
+    sign_key: str
+    api_base_url: str
+    notify_url: str
+    return_url: Optional[str] = None
+    channel_type: Optional[str] = None
     is_active: bool = True
-    sort_order: int = 0
 
 
-class PaymentConfigUpdateIn(BaseModel):
-    account_name: Optional[str] = None
-    account_number: Optional[str] = None
-    qr_code_url: Optional[str] = None
-    qr_code_file_id: Optional[str] = None
+class SharkPaymentConfigUpdateIn(BaseModel):
+    merchant_id: Optional[str] = None
+    sign_key: Optional[str] = None
+    api_base_url: Optional[str] = None
+    notify_url: Optional[str] = None
+    return_url: Optional[str] = None
+    channel_type: Optional[str] = None
     is_active: Optional[bool] = None
-    sort_order: Optional[int] = None
+
+
+class CreateOrderRequest(BaseModel):
+    vip_plan_id: int
+    user_id: int
+
+
+class CreateOrderResponse(BaseModel):
+    order_id: str
+    pay_url: str
+    amount: str
+
+
+class PaymentOrderResponse(BaseModel):
+    id: int
+    order_id: str
+    user_id: int
+    vip_plan_id: Optional[int]
+    amount: str
+    status: str
+    pay_url: Optional[str]
+    channel_type: Optional[str]
+    notify_received: bool
+    created_at: datetime
+    updated_at: datetime
+    paid_at: Optional[datetime]
 
 
 class VipPaymentInfoResponse(BaseModel):
     plans: List[VipPlanResponse]
-    wechat_config: Optional[PaymentConfigResponse] = None
-    alipay_config: Optional[PaymentConfigResponse] = None
+    payment_config: Optional[SharkPaymentConfigResponse] = None
 
 
 logger = logging.getLogger(__name__)
@@ -1954,22 +1981,22 @@ async def delete_vip_plan(
     return Response(status_code=204)
 
 
-# ==================== 支付配置管理 ====================
+# ==================== 鲨鱼支付配置管理 ====================
 
-@app.get("/payment-configs", response_model=List[PaymentConfigResponse])
-async def list_payment_configs(_: Annotated[str, Depends(require_admin)]):
+@app.get("/shark-payment-configs", response_model=List[SharkPaymentConfigResponse])
+async def list_shark_payment_configs(_: Annotated[str, Depends(require_admin)]):
     with db_session() as session:
-        configs = session.query(PaymentConfig).order_by(PaymentConfig.sort_order.asc(), PaymentConfig.id.asc()).all()
+        configs = session.query(SharkPaymentConfig).order_by(SharkPaymentConfig.id.desc()).all()
         return [
-            PaymentConfigResponse(
+            SharkPaymentConfigResponse(
                 id=config.id,
-                payment_type=config.payment_type,
-                account_name=config.account_name,
-                account_number=config.account_number,
-                qr_code_url=config.qr_code_url,
-                qr_code_file_id=config.qr_code_file_id,
+                merchant_id=config.merchant_id,
+                sign_key=config.sign_key[:8] + "***" if len(config.sign_key) > 8 else "***",  # 只显示前8位
+                api_base_url=config.api_base_url,
+                notify_url=config.notify_url,
+                return_url=config.return_url,
+                channel_type=config.channel_type,
                 is_active=config.is_active,
-                sort_order=config.sort_order,
                 created_at=config.created_at,
                 updated_at=config.updated_at,
             )
@@ -1977,89 +2004,319 @@ async def list_payment_configs(_: Annotated[str, Depends(require_admin)]):
         ]
 
 
-@app.post("/payment-configs", response_model=PaymentConfigResponse)
-async def create_payment_config(
-    payload: PaymentConfigCreateIn,
+@app.post("/shark-payment-configs", response_model=SharkPaymentConfigResponse)
+async def create_shark_payment_config(
+    payload: SharkPaymentConfigCreateIn,
     _: Annotated[str, Depends(require_admin)],
 ):
-    if payload.payment_type not in ("wechat", "alipay"):
-        raise HTTPException(status_code=400, detail="payment_type must be 'wechat' or 'alipay'")
     with db_session() as session:
-        config = PaymentConfig(
-            payment_type=payload.payment_type,
-            account_name=payload.account_name,
-            account_number=payload.account_number,
-            qr_code_url=payload.qr_code_url,
-            qr_code_file_id=payload.qr_code_file_id,
+        config = SharkPaymentConfig(
+            merchant_id=payload.merchant_id,
+            sign_key=payload.sign_key,
+            api_base_url=payload.api_base_url,
+            notify_url=payload.notify_url,
+            return_url=payload.return_url,
+            channel_type=payload.channel_type,
             is_active=payload.is_active,
-            sort_order=payload.sort_order,
         )
         session.add(config)
         session.flush()
-        return PaymentConfigResponse(
+        return SharkPaymentConfigResponse(
             id=config.id,
-            payment_type=config.payment_type,
-            account_name=config.account_name,
-            account_number=config.account_number,
-            qr_code_url=config.qr_code_url,
-            qr_code_file_id=config.qr_code_file_id,
+            merchant_id=config.merchant_id,
+            sign_key=config.sign_key[:8] + "***" if len(config.sign_key) > 8 else "***",
+            api_base_url=config.api_base_url,
+            notify_url=config.notify_url,
+            return_url=config.return_url,
+            channel_type=config.channel_type,
             is_active=config.is_active,
-            sort_order=config.sort_order,
             created_at=config.created_at,
             updated_at=config.updated_at,
         )
 
 
-@app.put("/payment-configs/{config_id}", response_model=PaymentConfigResponse)
-async def update_payment_config(
+@app.put("/shark-payment-configs/{config_id}", response_model=SharkPaymentConfigResponse)
+async def update_shark_payment_config(
     config_id: int,
-    payload: PaymentConfigUpdateIn,
+    payload: SharkPaymentConfigUpdateIn,
     _: Annotated[str, Depends(require_admin)],
 ):
     with db_session() as session:
-        config = session.get(PaymentConfig, config_id)
+        config = session.get(SharkPaymentConfig, config_id)
         if not config:
             raise HTTPException(status_code=404, detail="Payment config not found")
         fields_set = getattr(payload, "model_fields_set", getattr(payload, "__fields_set__", set()))
-        if payload.account_name is not None or "account_name" in fields_set:
-            config.account_name = payload.account_name
-        if payload.account_number is not None or "account_number" in fields_set:
-            config.account_number = payload.account_number
-        if payload.qr_code_url is not None or "qr_code_url" in fields_set:
-            config.qr_code_url = payload.qr_code_url
-        if payload.qr_code_file_id is not None or "qr_code_file_id" in fields_set:
-            config.qr_code_file_id = payload.qr_code_file_id
+        if payload.merchant_id is not None:
+            config.merchant_id = payload.merchant_id
+        if payload.sign_key is not None:
+            config.sign_key = payload.sign_key
+        if payload.api_base_url is not None:
+            config.api_base_url = payload.api_base_url
+        if payload.notify_url is not None:
+            config.notify_url = payload.notify_url
+        if payload.return_url is not None or "return_url" in fields_set:
+            config.return_url = payload.return_url
+        if payload.channel_type is not None or "channel_type" in fields_set:
+            config.channel_type = payload.channel_type
         if payload.is_active is not None:
             config.is_active = payload.is_active
-        if payload.sort_order is not None:
-            config.sort_order = payload.sort_order
         session.flush()
-        return PaymentConfigResponse(
+        return SharkPaymentConfigResponse(
             id=config.id,
-            payment_type=config.payment_type,
-            account_name=config.account_name,
-            account_number=config.account_number,
-            qr_code_url=config.qr_code_url,
-            qr_code_file_id=config.qr_code_file_id,
+            merchant_id=config.merchant_id,
+            sign_key=config.sign_key[:8] + "***" if len(config.sign_key) > 8 else "***",
+            api_base_url=config.api_base_url,
+            notify_url=config.notify_url,
+            return_url=config.return_url,
+            channel_type=config.channel_type,
             is_active=config.is_active,
-            sort_order=config.sort_order,
             created_at=config.created_at,
             updated_at=config.updated_at,
         )
 
 
-@app.delete("/payment-configs/{config_id}", status_code=204, response_class=Response)
-async def delete_payment_config(
+@app.delete("/shark-payment-configs/{config_id}", status_code=204, response_class=Response)
+async def delete_shark_payment_config(
     config_id: int,
     _: Annotated[str, Depends(require_admin)],
 ):
     with db_session() as session:
-        config = session.get(PaymentConfig, config_id)
+        config = session.get(SharkPaymentConfig, config_id)
         if not config:
             raise HTTPException(status_code=404, detail="Payment config not found")
         session.delete(config)
         session.flush()
     return Response(status_code=204)
+
+
+# ==================== 支付订单管理 ====================
+
+@app.post("/payment/orders", response_model=CreateOrderResponse)
+async def create_payment_order(
+    payload: CreateOrderRequest,
+    _: Annotated[str, Depends(require_admin)],
+):
+    """创建支付订单"""
+    with db_session() as session:
+        # 获取VIP套餐
+        vip_plan = session.get(VipPlan, payload.vip_plan_id)
+        if not vip_plan or not vip_plan.is_active:
+            raise HTTPException(status_code=404, detail="VIP plan not found or inactive")
+        
+        # 获取启用的支付配置
+        payment_config = (
+            session.query(SharkPaymentConfig)
+            .filter(SharkPaymentConfig.is_active == True)
+            .first()
+        )
+        if not payment_config:
+            raise HTTPException(status_code=400, detail="No active payment config found")
+        
+        # 生成订单号
+        import time
+        order_id = f"VIP{payload.user_id}{int(time.time())}"
+        
+        # 创建订单记录
+        order = PaymentOrder(
+            order_id=order_id,
+            user_id=payload.user_id,
+            vip_plan_id=payload.vip_plan_id,
+            amount=vip_plan.price,
+            status="unpaid",
+            channel_type=payment_config.channel_type,
+        )
+        session.add(order)
+        session.flush()
+        
+        # 调用支付接口创建订单
+        payment_service = SharkPaymentService(
+            merchant_id=payment_config.merchant_id,
+            sign_key=payment_config.sign_key,
+            api_base_url=payment_config.api_base_url,
+        )
+        
+        try:
+            result = await payment_service.create_order(
+                order_id=order_id,
+                order_amount=vip_plan.price,
+                notify_url=payment_config.notify_url,
+                channel_type=payment_config.channel_type,
+                return_url=payment_config.return_url,
+                payer_id=str(payload.user_id),
+                order_title=f"VIP套餐-{vip_plan.name}",
+                order_body=f"购买{vip_plan.name}，有效期{vip_plan.duration_days}天",
+            )
+            
+            if result.get("code") != 200:
+                raise HTTPException(status_code=400, detail=result.get("msg", "创建订单失败"))
+            
+            pay_url = result.get("data", {}).get("payUrl", "")
+            if not pay_url:
+                raise HTTPException(status_code=400, detail="未获取到支付链接")
+            
+            # 更新订单支付链接
+            order.pay_url = pay_url
+            session.flush()
+            
+            return CreateOrderResponse(
+                order_id=order_id,
+                pay_url=pay_url,
+                amount=vip_plan.price,
+            )
+        except Exception as e:
+            logger.error(f"创建支付订单失败: {e}")
+            raise HTTPException(status_code=500, detail=f"创建订单失败: {str(e)}")
+
+
+@app.get("/payment/orders", response_model=List[PaymentOrderResponse])
+async def list_payment_orders(
+    _: Annotated[str, Depends(require_admin)],
+    user_id: Optional[int] = Query(None),
+    status: Optional[str] = Query(None),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=100),
+):
+    """查询支付订单"""
+    with db_session() as session:
+        query = session.query(PaymentOrder)
+        if user_id:
+            query = query.filter(PaymentOrder.user_id == user_id)
+        if status:
+            query = query.filter(PaymentOrder.status == status)
+        orders = query.order_by(PaymentOrder.created_at.desc()).offset(skip).limit(limit).all()
+        return [
+            PaymentOrderResponse(
+                id=order.id,
+                order_id=order.order_id,
+                user_id=order.user_id,
+                vip_plan_id=order.vip_plan_id,
+                amount=order.amount,
+                status=order.status,
+                pay_url=order.pay_url,
+                channel_type=order.channel_type,
+                notify_received=order.notify_received,
+                created_at=order.created_at,
+                updated_at=order.updated_at,
+                paid_at=order.paid_at,
+            )
+            for order in orders
+        ]
+
+
+# ==================== 支付回调接口 ====================
+
+@app.post("/payment/notify")
+async def payment_notify(request: Request):
+    """支付回调接口（异步通知）"""
+    form_data = await request.form()
+    data = dict(form_data)
+    
+    logger.info(f"收到支付回调: {data}")
+    
+    with db_session() as session:
+        # 获取支付配置
+        payment_config = (
+            session.query(SharkPaymentConfig)
+            .filter(SharkPaymentConfig.is_active == True)
+            .first()
+        )
+        if not payment_config:
+            logger.error("未找到启用的支付配置")
+            return Response(content="error", status_code=400)
+        
+        # 验证签名
+        payment_service = SharkPaymentService(
+            merchant_id=payment_config.merchant_id,
+            sign_key=payment_config.sign_key,
+            api_base_url=payment_config.api_base_url,
+        )
+        
+        if not payment_service.verify_sign(data):
+            logger.error(f"签名验证失败: {data}")
+            return Response(content="sign error", status_code=400)
+        
+        # 获取订单
+        order_id = data.get("orderId")
+        order = session.query(PaymentOrder).filter(PaymentOrder.order_id == order_id).first()
+        
+        if not order:
+            logger.error(f"订单不存在: {order_id}")
+            return Response(content="order not found", status_code=404)
+        
+        # 检查订单状态
+        status = data.get("status", "")
+        if status == "ok" and order.status == "unpaid":
+            # 更新订单状态
+            order.status = "paid"
+            order.notify_received = True
+            order.paid_at = datetime.now(timezone.utc)
+            
+            # 更新用户VIP到期时间
+            user = session.get(User, order.user_id)
+            if user:
+                vip_plan = session.get(VipPlan, order.vip_plan_id)
+                if vip_plan:
+                    from datetime import timedelta
+                    now = datetime.now(timezone.utc)
+                    if user.vip_expiry and user.vip_expiry > now:
+                        # 在现有到期时间基础上延长
+                        user.vip_expiry = user.vip_expiry + timedelta(days=vip_plan.duration_days)
+                    else:
+                        # 从当前时间开始计算
+                        user.vip_expiry = now + timedelta(days=vip_plan.duration_days)
+            
+            session.flush()
+            logger.info(f"订单支付成功: {order_id}")
+        
+        # 返回 ok 或 success
+        return Response(content="ok", status_code=200)
+
+
+@app.get("/payment/return")
+async def payment_return(
+    merchantId: str = Query(...),
+    orderId: str = Query(...),
+    amount: str = Query(...),
+    status: str = Query(...),
+    sign: str = Query(...),
+):
+    """支付同步跳转接口"""
+    data = {
+        "merchantId": merchantId,
+        "orderId": orderId,
+        "amount": amount,
+        "status": status,
+        "sign": sign,
+    }
+    
+    logger.info(f"收到支付同步跳转: {data}")
+    
+    with db_session() as session:
+        # 获取支付配置
+        payment_config = (
+            session.query(SharkPaymentConfig)
+            .filter(SharkPaymentConfig.is_active == True)
+            .first()
+        )
+        if not payment_config:
+            return Response(content="Payment config not found", status_code=400)
+        
+        # 验证签名
+        payment_service = SharkPaymentService(
+            merchant_id=payment_config.merchant_id,
+            sign_key=payment_config.sign_key,
+            api_base_url=payment_config.api_base_url,
+        )
+        
+        if not payment_service.verify_sign(data):
+            return Response(content="Sign error", status_code=400)
+        
+        # 跳转到支付成功页面
+        if payment_config.return_url:
+            from fastapi.responses import RedirectResponse
+            return RedirectResponse(url=payment_config.return_url)
+        else:
+            return Response(content="Payment successful", status_code=200)
 
 
 # ==================== 公开的支付信息接口（供机器人使用）====================
@@ -2091,52 +2348,29 @@ async def get_vip_payment_info():
         ]
         
         # 获取启用的支付配置
-        wechat_config = (
-            session.query(PaymentConfig)
-            .filter(PaymentConfig.payment_type == "wechat", PaymentConfig.is_active == True)
-            .order_by(PaymentConfig.sort_order.asc())
-            .first()
-        )
-        alipay_config = (
-            session.query(PaymentConfig)
-            .filter(PaymentConfig.payment_type == "alipay", PaymentConfig.is_active == True)
-            .order_by(PaymentConfig.sort_order.asc())
+        payment_config = (
+            session.query(SharkPaymentConfig)
+            .filter(SharkPaymentConfig.is_active == True)
             .first()
         )
         
-        wechat_response = None
-        if wechat_config:
-            wechat_response = PaymentConfigResponse(
-                id=wechat_config.id,
-                payment_type=wechat_config.payment_type,
-                account_name=wechat_config.account_name,
-                account_number=wechat_config.account_number,
-                qr_code_url=wechat_config.qr_code_url,
-                qr_code_file_id=wechat_config.qr_code_file_id,
-                is_active=wechat_config.is_active,
-                sort_order=wechat_config.sort_order,
-                created_at=wechat_config.created_at,
-                updated_at=wechat_config.updated_at,
-            )
-        
-        alipay_response = None
-        if alipay_config:
-            alipay_response = PaymentConfigResponse(
-                id=alipay_config.id,
-                payment_type=alipay_config.payment_type,
-                account_name=alipay_config.account_name,
-                account_number=alipay_config.account_number,
-                qr_code_url=alipay_config.qr_code_url,
-                qr_code_file_id=alipay_config.qr_code_file_id,
-                is_active=alipay_config.is_active,
-                sort_order=alipay_config.sort_order,
-                created_at=alipay_config.created_at,
-                updated_at=alipay_config.updated_at,
+        payment_config_response = None
+        if payment_config:
+            payment_config_response = SharkPaymentConfigResponse(
+                id=payment_config.id,
+                merchant_id=payment_config.merchant_id,
+                sign_key=payment_config.sign_key[:8] + "***" if len(payment_config.sign_key) > 8 else "***",
+                api_base_url=payment_config.api_base_url,
+                notify_url=payment_config.notify_url,
+                return_url=payment_config.return_url,
+                channel_type=payment_config.channel_type,
+                is_active=payment_config.is_active,
+                created_at=payment_config.created_at,
+                updated_at=payment_config.updated_at,
             )
         
         return VipPaymentInfoResponse(
             plans=plan_responses,
-            wechat_config=wechat_response,
-            alipay_config=alipay_response,
+            payment_config=payment_config_response,
         )
 

@@ -46,7 +46,7 @@ export function VipSettings() {
       setLoading(true)
       const [plansRes, configsRes] = await Promise.all([
         fetch("/api/vip-plans"),
-        fetch("/api/payment-configs"),
+        fetch("/api/shark-payment-configs"),
       ])
       if (plansRes.ok) {
         const plans = await plansRes.json()
@@ -141,7 +141,7 @@ export function VipSettings() {
   const handleSavePayment = async (config: any) => {
     try {
       setSavingPayment(true)
-      const url = editingPayment ? `/api/payment-configs/${editingPayment.id}` : "/api/payment-configs"
+      const url = editingPayment ? `/api/shark-payment-configs/${editingPayment.id}` : "/api/shark-payment-configs"
       const method = editingPayment ? "PUT" : "POST"
       const res = await fetch(url, {
         method,
@@ -177,7 +177,7 @@ export function VipSettings() {
     try {
       setDeletingPaymentId(paymentToDelete.id)
       setShowDeletePaymentDialog(false)
-      const res = await fetch(`/api/payment-configs/${paymentToDelete.id}`, { method: "DELETE" })
+      const res = await fetch(`/api/shark-payment-configs/${paymentToDelete.id}`, { method: "DELETE" })
       if (!res.ok) {
         const body = await res.json().catch(() => ({}))
         throw new Error(body.detail ?? "删除失败")
@@ -199,8 +199,7 @@ export function VipSettings() {
     }
   }
 
-  const wechatConfig = paymentConfigs.find((c) => c.payment_type === "wechat")
-  const alipayConfig = paymentConfigs.find((c) => c.payment_type === "alipay")
+  const paymentConfig = paymentConfigs.length > 0 ? paymentConfigs[0] : null
 
   return (
     <>
@@ -281,22 +280,25 @@ export function VipSettings() {
           ) : (
             <>
               <div className="space-y-3">
-                <div className="p-3 rounded-lg bg-muted">
-                  <p className="font-medium text-sm mb-2">微信支付</p>
-                  {wechatConfig ? (
+                {paymentConfig ? (
+                  <div className="p-3 rounded-lg bg-muted">
+                    <p className="font-medium text-sm mb-2">鲨鱼支付配置</p>
                     <div className="space-y-1">
-                      {wechatConfig.account_name && (
-                        <p className="text-xs text-muted-foreground">收款人：{wechatConfig.account_name}</p>
+                      <p className="text-xs text-muted-foreground">商户号：{paymentConfig.merchant_id}</p>
+                      <p className="text-xs text-muted-foreground">API地址：{paymentConfig.api_base_url}</p>
+                      <p className="text-xs text-muted-foreground">回调地址：{paymentConfig.notify_url}</p>
+                      {paymentConfig.channel_type && (
+                        <p className="text-xs text-muted-foreground">通道类型：{paymentConfig.channel_type}</p>
                       )}
-                      {wechatConfig.account_number && (
-                        <p className="text-xs text-muted-foreground">账号：{wechatConfig.account_number}</p>
-                      )}
+                      <p className="text-xs text-muted-foreground">
+                        状态：{paymentConfig.is_active ? "✅ 已启用" : "❌ 已禁用"}
+                      </p>
                       <div className="flex gap-2 mt-2">
                         <Button
                           size="sm"
                           variant="outline"
                           onClick={() => {
-                            setEditingPayment(wechatConfig)
+                            setEditingPayment(paymentConfig)
                             setShowPaymentForm(true)
                           }}
                         >
@@ -305,77 +307,30 @@ export function VipSettings() {
                         <Button
                           size="sm"
                           variant="destructive"
-                          onClick={() => handleDeletePaymentClick({ id: wechatConfig.id, payment_type: wechatConfig.payment_type })}
-                          disabled={deletingPaymentId === wechatConfig.id || loading}
+                          onClick={() => handleDeletePaymentClick({ id: paymentConfig.id, payment_type: "shark" })}
+                          disabled={deletingPaymentId === paymentConfig.id || loading}
                         >
-                          {deletingPaymentId === wechatConfig.id && <Spinner className="mr-1" />}
+                          {deletingPaymentId === paymentConfig.id && <Spinner className="mr-1" />}
                           删除
                         </Button>
                       </div>
                     </div>
-                  ) : (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => {
-                        setEditingPayment({ payment_type: "wechat" })
-                        setShowPaymentForm(true)
-                      }}
-                      disabled={savingPayment || loading}
-                    >
-                      {savingPayment && <Spinner className="mr-2" />}
-                      添加微信支付
-                    </Button>
-                  )}
-                </div>
-
-                <div className="p-3 rounded-lg bg-muted">
-                  <p className="font-medium text-sm mb-2">支付宝</p>
-                  {alipayConfig ? (
-                    <div className="space-y-1">
-                      {alipayConfig.account_name && (
-                        <p className="text-xs text-muted-foreground">收款人：{alipayConfig.account_name}</p>
-                      )}
-                      {alipayConfig.account_number && (
-                        <p className="text-xs text-muted-foreground">账号：{alipayConfig.account_number}</p>
-                      )}
-                      <div className="flex gap-2 mt-2">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => {
-                            setEditingPayment(alipayConfig)
-                            setShowPaymentForm(true)
-                          }}
-                        >
-                          编辑
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="destructive"
-                          onClick={() => handleDeletePaymentClick({ id: alipayConfig.id, payment_type: alipayConfig.payment_type })}
-                          disabled={deletingPaymentId === alipayConfig.id || loading}
-                        >
-                          {deletingPaymentId === alipayConfig.id && <Spinner className="mr-1" />}
-                          删除
-                        </Button>
-                      </div>
-                    </div>
-                  ) : (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => {
-                        setEditingPayment({ payment_type: "alipay" })
-                        setShowPaymentForm(true)
-                      }}
-                      disabled={savingPayment || loading}
-                    >
-                      {savingPayment && <Spinner className="mr-2" />}
-                      添加支付宝
-                    </Button>
-                  )}
-                </div>
+                  </div>
+                ) : (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      setEditingPayment(null)
+                      setShowPaymentForm(true)
+                    }}
+                    disabled={savingPayment || loading}
+                    className="w-full"
+                  >
+                    {savingPayment && <Spinner className="mr-2" />}
+                    添加支付配置
+                  </Button>
+                )}
               </div>
             </>
           )}
@@ -437,7 +392,7 @@ export function VipSettings() {
           <AlertDialogHeader>
             <AlertDialogTitle>确认删除支付配置</AlertDialogTitle>
             <AlertDialogDescription>
-              确定要删除{paymentToDelete?.payment_type === "wechat" ? "微信" : "支付宝"}支付配置吗？此操作无法撤销。
+              确定要删除鲨鱼支付配置吗？此操作无法撤销。
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -571,70 +526,93 @@ function PaymentFormDialog({
   onSave: (config: any) => void
   onClose: () => void
 }) {
-  const [accountName, setAccountName] = useState(config?.account_name || "")
-  const [accountNumber, setAccountNumber] = useState(config?.account_number || "")
-  const [qrCodeUrl, setQrCodeUrl] = useState(config?.qr_code_url || "")
-  const [qrCodeFileId, setQrCodeFileId] = useState(config?.qr_code_file_id || "")
+  const [merchantId, setMerchantId] = useState(config?.merchant_id || "")
+  const [signKey, setSignKey] = useState(config?.sign_key || "")
+  const [apiBaseUrl, setApiBaseUrl] = useState(config?.api_base_url || "")
+  const [notifyUrl, setNotifyUrl] = useState(config?.notify_url || "")
+  const [returnUrl, setReturnUrl] = useState(config?.return_url || "")
+  const [channelType, setChannelType] = useState(config?.channel_type || "")
   const [isActive, setIsActive] = useState(config?.is_active !== false)
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     onSave({
-      payment_type: config.payment_type,
-      account_name: accountName || null,
-      account_number: accountNumber || null,
-      qr_code_url: qrCodeUrl || null,
-      qr_code_file_id: qrCodeFileId || null,
+      merchant_id: merchantId,
+      sign_key: signKey,
+      api_base_url: apiBaseUrl,
+      notify_url: notifyUrl,
+      return_url: returnUrl || null,
+      channel_type: channelType || null,
       is_active: isActive,
     })
   }
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <Card className="w-full max-w-md m-4">
+      <Card className="w-full max-w-md m-4 max-h-[90vh] overflow-y-auto">
         <CardHeader>
-          <CardTitle>配置{config.payment_type === "wechat" ? "微信" : "支付宝"}支付</CardTitle>
+          <CardTitle>{config ? "编辑支付配置" : "添加支付配置"}</CardTitle>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="payment-account-name">收款人姓名（可选）</Label>
+              <Label htmlFor="merchant-id">商户号 *</Label>
               <Input
-                id="payment-account-name"
-                value={accountName}
-                onChange={(e) => setAccountName(e.target.value)}
-                placeholder="收款人姓名"
+                id="merchant-id"
+                value={merchantId}
+                onChange={(e) => setMerchantId(e.target.value)}
+                required
+                placeholder="例如：10242"
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="payment-account-number">收款账号（可选）</Label>
+              <Label htmlFor="sign-key">签名密钥 *</Label>
               <Input
-                id="payment-account-number"
-                value={accountNumber}
-                onChange={(e) => setAccountNumber(e.target.value)}
-                placeholder="收款账号"
+                id="sign-key"
+                type="password"
+                value={signKey}
+                onChange={(e) => setSignKey(e.target.value)}
+                required
+                placeholder="商户签名密钥"
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="payment-qr-url">二维码图片URL（可选）</Label>
+              <Label htmlFor="api-base-url">API基础地址 *</Label>
               <Input
-                id="payment-qr-url"
-                value={qrCodeUrl}
-                onChange={(e) => setQrCodeUrl(e.target.value)}
-                placeholder="https://example.com/qr.png"
+                id="api-base-url"
+                value={apiBaseUrl}
+                onChange={(e) => setApiBaseUrl(e.target.value)}
+                required
+                placeholder="例如：http://qingju.lucky777.life"
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="payment-qr-file-id">二维码Telegram File ID（可选）</Label>
+              <Label htmlFor="notify-url">异步通知地址 *</Label>
               <Input
-                id="payment-qr-file-id"
-                value={qrCodeFileId}
-                onChange={(e) => setQrCodeFileId(e.target.value)}
-                placeholder="上传二维码到Telegram后获取File ID"
+                id="notify-url"
+                value={notifyUrl}
+                onChange={(e) => setNotifyUrl(e.target.value)}
+                required
+                placeholder="例如：http://your-domain.com/payment/notify"
               />
-              <p className="text-xs text-muted-foreground">
-                提示：将二维码图片发送给机器人，然后从消息中获取 file_id
-              </p>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="return-url">同步跳转地址（可选）</Label>
+              <Input
+                id="return-url"
+                value={returnUrl}
+                onChange={(e) => setReturnUrl(e.target.value)}
+                placeholder="支付成功后的跳转地址"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="channel-type">通道类型（可选）</Label>
+              <Input
+                id="channel-type"
+                value={channelType}
+                onChange={(e) => setChannelType(e.target.value)}
+                placeholder="通道编号，留空使用商户后台默认"
+              />
             </div>
             <div className="flex items-center gap-2">
               <input

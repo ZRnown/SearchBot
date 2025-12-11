@@ -162,23 +162,44 @@ class VipPlan(Base):
     )
 
 
-class PaymentConfig(Base):
-    __tablename__ = "payment_configs"
+class SharkPaymentConfig(Base):
+    __tablename__ = "shark_payment_configs"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    payment_type: Mapped[str] = mapped_column(String(16), nullable=False)  # wechat, alipay
-    account_name: Mapped[Optional[str]] = mapped_column(String(128))  # 收款人姓名
-    account_number: Mapped[Optional[str]] = mapped_column(String(128))  # 收款账号
-    qr_code_url: Mapped[Optional[str]] = mapped_column(Text)  # 二维码图片URL
-    qr_code_file_id: Mapped[Optional[str]] = mapped_column(Text)  # 二维码Telegram file_id
+    merchant_id: Mapped[str] = mapped_column(String(64), nullable=False)  # 商户号
+    sign_key: Mapped[str] = mapped_column(String(128), nullable=False)  # 签名密钥
+    api_base_url: Mapped[str] = mapped_column(String(255), nullable=False)  # API基础地址
+    notify_url: Mapped[str] = mapped_column(String(512), nullable=False)  # 异步通知地址
+    return_url: Mapped[Optional[str]] = mapped_column(String(512))  # 同步跳转地址
+    channel_type: Mapped[Optional[str]] = mapped_column(String(32))  # 通道编号（可选，默认使用商户后台配置）
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)  # 是否启用
-    sort_order: Mapped[int] = mapped_column(Integer, default=0)  # 排序
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc)
     )
+
+
+class PaymentOrder(Base):
+    __tablename__ = "payment_orders"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    order_id: Mapped[str] = mapped_column(String(50), unique=True, nullable=False)  # 商户订单号
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.user_id"), nullable=False)  # 用户ID
+    vip_plan_id: Mapped[Optional[int]] = mapped_column(ForeignKey("vip_plans.id"))  # VIP套餐ID
+    amount: Mapped[str] = mapped_column(String(20), nullable=False)  # 订单金额
+    status: Mapped[str] = mapped_column(String(16), default="unpaid")  # 订单状态: unpaid, paid, expired
+    pay_url: Mapped[Optional[str]] = mapped_column(Text)  # 支付链接
+    channel_type: Mapped[Optional[str]] = mapped_column(String(32))  # 通道类型
+    notify_received: Mapped[bool] = mapped_column(Boolean, default=False)  # 是否收到回调
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc)
+    )
+    paid_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))  # 支付时间
 
 
 @contextmanager
@@ -213,6 +234,7 @@ def ensure_schema():
         if "storage_message_id" not in columns:
             with engine.begin() as conn:
                 conn.execute(text("ALTER TABLE comic_files ADD COLUMN storage_message_id BIGINT"))
+    # 确保新表已创建（Base.metadata.create_all 会自动处理，这里只是确保）
 
 
 def init_db():

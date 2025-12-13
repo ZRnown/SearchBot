@@ -22,6 +22,10 @@ export async function adminFetch(path: string, init?: RequestInit, token?: strin
   if (token) {
     headers.set("Authorization", `Bearer ${token}`)
   }
+  // 如果有 body 且是字符串，确保设置 Content-Type
+  if (init?.body && typeof init.body === 'string' && !headers.has('Content-Type')) {
+    headers.set("Content-Type", "application/json")
+  }
   const response = await fetch(url, {
     ...init,
     headers,

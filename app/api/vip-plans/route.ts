@@ -30,7 +30,13 @@ export async function POST(request: Request) {
     return NextResponse.json({ message: "Unauthorized" }, { status: 401 })
   }
   const body = await request.json()
-  const upstream = await adminFetch("/vip-plans", { method: "POST", body: JSON.stringify(body) }, token)
+  const upstream = await adminFetch("/vip-plans", { 
+    method: "POST", 
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body) 
+  }, token)
   const text = await upstream.text()
   if (!text) {
     return NextResponse.json({}, { status: upstream.status })

@@ -880,26 +880,30 @@ async def upload_comic(
 
         deep_link = f"https://t.me/{bot_username}?start=comic_{resource.id}"
         
-        # 发送前几张图片到预览频道，第一张图片的caption包含超链接
+        # 发送前几张图片到预览频道（作为一条媒体组消息），第一张图片的caption包含超链接
         preview_file_ids = stored_file_ids[:min(preview_count, len(stored_file_ids))]
         preview_messages = []
-        for idx, file_id in enumerate(preview_file_ids):
+        if preview_file_ids:
             try:
                 # 第一张图片添加caption（包含超链接），其他图片不添加caption
-                if idx == 0:
-                    caption = f'📖 <a href="{deep_link}">{title}</a>'
-                    message = await admin_bot.send_photo(
-                        settings.channels.comic_preview_channel_id,
-                        photo=file_id,
-                        caption=caption,
-                        parse_mode="HTML",
-                    )
-                else:
-                    message = await admin_bot.send_photo(
-                        settings.channels.comic_preview_channel_id,
-                        photo=file_id,
-                    )
-                preview_messages.append(message)
+                media_group = []
+                for idx, file_id in enumerate(preview_file_ids):
+                    if idx == 0:
+                        caption = f'📖 <a href="{deep_link}">{title}</a>'
+                        media_group.append(
+                            InputMediaPhoto(
+                                media=file_id,
+                                caption=caption,
+                                parse_mode="HTML",
+                            )
+                        )
+                    else:
+                        media_group.append(InputMediaPhoto(media=file_id))
+                messages = await admin_bot.send_media_group(
+                    settings.channels.comic_preview_channel_id,
+                    media=media_group,
+                )
+                preview_messages.extend(messages)
             except Exception as e:
                 logger.error(f"发送预览图片失败: {e}")
                 # 预览失败不影响主流程，继续执行
@@ -1096,9 +1100,31 @@ def extract_images_from_archive(archive_path: Path, archive_type: str) -> tuple[
     # 过滤掉 macOS 隐藏文件（以 ._ 开头的文件）和其他系统文件
     images = [img for img in images if not img.name.startswith('._') and not img.name.startswith('.DS_Store')]
     
+    # 进一步验证：确保文件确实是图片文件（检查文件扩展名和文件大小）
+    valid_images = []
+    for img_path in images:
+        # 检查扩展名
+        if img_path.suffix.lower() not in image_extensions:
+            logger.warning(f"跳过非图片文件: {img_path.name} (扩展名: {img_path.suffix})")
+            continue
+        # 检查文件大小（至少1字节）
+        try:
+            if img_path.stat().st_size < 1:
+                logger.warning(f"跳过空文件: {img_path.name}")
+                continue
+            # 检查是否是真正的文件（不是目录）
+            if not img_path.is_file():
+                logger.warning(f"跳过非文件项: {img_path.name}")
+                continue
+            valid_images.append(img_path)
+        except Exception as e:
+            logger.warning(f"检查文件 {img_path.name} 时出错: {e}，跳过")
+            continue
+    
     # 按文件名排序
-    images.sort(key=lambda p: str(p.name).lower())
-    return images, extracted_dir
+    valid_images.sort(key=lambda p: str(p.name).lower())
+    logger.info(f"最终有效图片数量: {len(valid_images)} (原始: {len(images)})")
+    return valid_images, extracted_dir
 
 
 @app.post("/resources/comics/archive", response_model=ComicUploadResponse)

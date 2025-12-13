@@ -281,7 +281,7 @@ export function VipSettings() {
             <>
               <div className="space-y-3">
                 {paymentConfig ? (
-                  <div className="p-3 rounded-lg bg-muted">
+                <div className="p-3 rounded-lg bg-muted">
                     <p className="font-medium text-sm mb-2">鲨鱼支付配置</p>
                     <div className="space-y-1">
                       <p className="text-xs text-muted-foreground">商户号：{paymentConfig.merchant_id}</p>
@@ -314,23 +314,23 @@ export function VipSettings() {
                           删除
                         </Button>
                       </div>
+                      </div>
                     </div>
-                  </div>
-                ) : (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => {
+                  ) : (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
                       setEditingPayment(null)
-                      setShowPaymentForm(true)
-                    }}
-                    disabled={savingPayment || loading}
+                        setShowPaymentForm(true)
+                      }}
+                      disabled={savingPayment || loading}
                     className="w-full"
-                  >
-                    {savingPayment && <Spinner className="mr-2" />}
+                    >
+                      {savingPayment && <Spinner className="mr-2" />}
                     添加支付配置
-                  </Button>
-                )}
+                    </Button>
+                  )}
               </div>
             </>
           )}

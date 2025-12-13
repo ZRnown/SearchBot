@@ -608,6 +608,14 @@ async def handle_buy_vip(
         )
         
         try:
+            # 检查通道类型是否配置
+            if not payment_config.channel_type or not payment_config.channel_type.strip():
+                error_msg = "支付配置中未设置通道类型，请联系管理员配置"
+                await bot.send_message(chat_id, f"创建订单失败：{error_msg}")
+                if query:
+                    await query.answer("创建订单失败", show_alert=True)
+                return
+            
             result = await payment_service.create_order(
                 order_id=order_id,
                 order_amount=vip_plan.price,

@@ -2162,6 +2162,13 @@ async def create_payment_order(
         )
         
         try:
+            # 检查通道类型是否配置
+            if not payment_config.channel_type or not payment_config.channel_type.strip():
+                raise HTTPException(
+                    status_code=400, 
+                    detail="支付配置中未设置通道类型（channel_type），请在管理后台配置支付信息时填写通道类型"
+                )
+            
             result = await payment_service.create_order(
                 order_id=order_id,
                 order_amount=vip_plan.price,

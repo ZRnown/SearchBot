@@ -79,8 +79,12 @@ class SharkPaymentService:
             "isForm": str(is_form),
         }
         
-        if channel_type:
-            params["channelType"] = channel_type
+        # channelType 是必填参数，必须传递且不能为空
+        # 如果未配置，抛出异常要求用户配置
+        if not channel_type or not channel_type.strip():
+            raise ValueError("channelType 参数不可为空，请在支付配置中设置通道类型")
+        
+        params["channelType"] = channel_type.strip()
         if return_url:
             params["returnUrl"] = return_url
         if payer_ip:

@@ -171,7 +171,7 @@ class SharkPaymentConfigCreateIn(BaseModel):
     api_base_url: str
     notify_url: str
     return_url: Optional[str] = None
-    channel_type: Optional[str] = None
+    channel_type: str  # 必填参数，根据支付平台文档要求
     is_active: bool = True
 
 
@@ -181,7 +181,7 @@ class SharkPaymentConfigUpdateIn(BaseModel):
     api_base_url: Optional[str] = None
     notify_url: Optional[str] = None
     return_url: Optional[str] = None
-    channel_type: Optional[str] = None
+    channel_type: Optional[str] = None  # 更新时可选，但如果提供则不能为空
     is_active: Optional[bool] = None
 
 
@@ -2035,6 +2035,13 @@ async def create_shark_payment_config(
     payload: SharkPaymentConfigCreateIn,
     _: Annotated[str, Depends(require_admin)],
 ):
+    # 验证通道类型（必填参数）
+    if not payload.channel_type or not payload.channel_type.strip():
+        raise HTTPException(
+            status_code=400, 
+            detail="通道类型（channel_type）是必填参数，请从支付平台商户后台查看通道编号并填写"
+        )
+    
     with db_session() as session:
         config = SharkPaymentConfig(
             merchant_id=payload.merchant_id,
@@ -2042,7 +2049,7 @@ async def create_shark_payment_config(
             api_base_url=payload.api_base_url,
             notify_url=payload.notify_url,
             return_url=payload.return_url,
-            channel_type=payload.channel_type,
+            channel_type=payload.channel_type.strip(),
             is_active=payload.is_active,
         )
         session.add(config)
@@ -2083,7 +2090,13 @@ async def update_shark_payment_config(
         if payload.return_url is not None or "return_url" in fields_set:
             config.return_url = payload.return_url
         if payload.channel_type is not None or "channel_type" in fields_set:
-            config.channel_type = payload.channel_type
+            # 如果更新通道类型，验证不能为空
+            if payload.channel_type is not None and not payload.channel_type.strip():
+                raise HTTPException(
+                    status_code=400,
+                    detail="通道类型（channel_type）是必填参数，不能为空"
+                )
+            config.channel_type = payload.channel_type.strip() if payload.channel_type else config.channel_type
         if payload.is_active is not None:
             config.is_active = payload.is_active
         session.flush()

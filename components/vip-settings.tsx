@@ -536,13 +536,18 @@ function PaymentFormDialog({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
+    // 验证通道类型（必填）
+    if (!channelType || !channelType.trim()) {
+      alert("通道类型是必填参数，请填写通道编号")
+      return
+    }
     onSave({
       merchant_id: merchantId,
       sign_key: signKey,
       api_base_url: apiBaseUrl,
       notify_url: notifyUrl,
       return_url: returnUrl || null,
-      channel_type: channelType || null,
+      channel_type: channelType.trim(),
       is_active: isActive,
     })
   }
@@ -606,13 +611,17 @@ function PaymentFormDialog({
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="channel-type">通道类型（可选）</Label>
+              <Label htmlFor="channel-type">通道类型（必填）*</Label>
               <Input
                 id="channel-type"
                 value={channelType}
                 onChange={(e) => setChannelType(e.target.value)}
-                placeholder="通道编号，留空使用商户后台默认"
+                required
+                placeholder="通道编号，从支付平台商户后台查看"
               />
+              <p className="text-xs text-muted-foreground">
+                提示：通道编号是必填参数，请登录支付平台商户后台查看通道编号
+              </p>
             </div>
             <div className="flex items-center gap-2">
               <input

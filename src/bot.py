@@ -427,8 +427,21 @@ async def send_comic_page(
 
         db_user = ensure_user_record(session, user)
 
+        # 计算分页信息（在VIP检查之前，因为需要知道当前页数）
+        page_size = settings.bot.page_size
+        if total_images <= 10:
+            # 少于等于 10 张图片，只显示 1 页，不分页
+            total_pages = 1
+            current_page = 1
+        else:
+            # 超过 10 张图片，使用分页
+            total_pages = (total_images + page_size - 1) // page_size  # 向上取整
+            # 确保 page 在有效范围内
+            current_page = max(1, min(page, total_pages))
+
         # 检查资源是否需要VIP权限
-        if resource.is_vip:
+        # 第一页（page=1）对所有人免费，从第二页开始才需要VIP
+        if resource.is_vip and current_page > 1:
             # 确保时区一致性
             now = datetime.now(timezone.utc)
             is_vip = False
@@ -498,19 +511,13 @@ async def send_comic_page(
 
         # 分页发送图片，每页显示 page_size 张图片
         # 如果总图片数 <= 10，只显示 1 页，不分页
-        page_size = settings.bot.page_size
         if total_images <= 10:
             # 少于等于 10 张图片，只显示 1 页，不分页
-            total_pages = 1
-            page = 1
             page_files = repo.list_comic_files(resource_id, limit=total_images, offset=0)
         else:
             # 超过 10 张图片，使用分页
-            total_pages = (total_images + page_size - 1) // page_size  # 向上取整
-            # 确保 page 在有效范围内
-            page = max(1, min(page, total_pages))
             # 计算当前页的偏移量
-            offset = (page - 1) * page_size
+            offset = (current_page - 1) * page_size
             page_files = repo.list_comic_files(resource_id, limit=page_size, offset=offset)
         
         if not page_files:
@@ -527,12 +534,29 @@ async def send_comic_page(
         # 发送分页导航按钮（如果只有 1 页，不显示分页按钮）
         link_preview_options = LinkPreviewOptions(is_disabled=True)
         if total_pages > 1:
-            keyboard = build_comic_nav_keyboard(resource_id, page, total_pages)
+            # 如果是VIP资源且当前不是VIP，在第1页时提示后续内容需要VIP
+            vip_hint = ""
+            if resource.is_vip and current_page == 1:
+                # 检查用户是否是VIP
+                now = datetime.now(timezone.utc)
+                is_vip = False
+                if db_user.vip_expiry:
+                    if db_user.vip_expiry.tzinfo is None:
+                        from datetime import timezone as tz
+                        vip_expiry = db_user.vip_expiry.replace(tzinfo=tz.utc)
+                    else:
+                        vip_expiry = db_user.vip_expiry
+                    is_vip = vip_expiry > now
+                
+                if not is_vip:
+                    vip_hint = "\n💡 提示：第一页免费，后续内容需要 VIP 会员"
+            
+            keyboard = build_comic_nav_keyboard(resource_id, current_page, total_pages)
             await bot.send_message(
                 chat_id,
                 f"📖 <b>{resource.title}</b>\n"
                 f"📊 合集图片数：{total_images}\n"
-                f"📄 当前第 {page} 页 / 共 {total_pages} 页",
+                f"📄 当前第 {current_page} 页 / 共 {total_pages} 页{vip_hint}",
                 reply_markup=keyboard,
                 parse_mode="HTML",
                 link_preview_options=link_preview_options,

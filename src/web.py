@@ -27,6 +27,7 @@ from fastapi.security import OAuth2PasswordBearer
 from pydantic import BaseModel, Field
 from jose import JWTError, jwt
 from passlib.context import CryptContext
+import bcrypt
 
 from sqlalchemy import String
 
@@ -228,7 +229,12 @@ admin_bot = Bot(
     default=DefaultBotProperties(parse_mode="HTML"),
 )
 _bot_username: Optional[str] = None
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+# 配置 passlib 使用 bcrypt，并设置兼容性选项
+try:
+    pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto", bcrypt__rounds=12)
+except Exception:
+    # 如果初始化失败，使用默认配置
+    pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 ALGORITHM = "HS256"
 
@@ -249,20 +255,53 @@ app.add_middleware(
 
 
 def _normalize_password(password: str) -> str:
+    """规范化密码，确保不超过 bcrypt 的 72 字节限制"""
+    if not password:
+        return ""
     encoded = password.encode("utf-8")
     if len(encoded) > MAX_BCRYPT_BYTES:
         logger.warning(
             "Admin password exceeds bcrypt 72-byte limit; extra bytes will be truncated."
         )
-    return encoded[:MAX_BCRYPT_BYTES].decode("utf-8", "ignore")
+        # 安全地截断到72字节，确保不会截断UTF-8字符
+        truncated = encoded[:MAX_BCRYPT_BYTES]
+        # 找到最后一个完整的UTF-8字符边界
+        while truncated and (truncated[-1] & 0xC0) == 0x80:
+            truncated = truncated[:-1]
+        return truncated.decode("utf-8", "ignore")
+    return password
 
 
 def hash_password(password: str) -> str:
-    return pwd_context.hash(_normalize_password(password))
+    """哈希密码"""
+    normalized = _normalize_password(password)
+    try:
+        return pwd_context.hash(normalized)
+    except Exception as e:
+        logger.error(f"密码哈希错误: {e}")
+        # 如果 passlib 失败，直接使用 bcrypt
+        password_bytes = normalized.encode('utf-8')
+        hashed = bcrypt.hashpw(password_bytes, bcrypt.gensalt())
+        return hashed.decode('utf-8')
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    return pwd_context.verify(_normalize_password(plain_password), hashed_password)
+    """验证密码"""
+    if not plain_password or not hashed_password:
+        return False
+    normalized = _normalize_password(plain_password)
+    try:
+        return pwd_context.verify(normalized, hashed_password)
+    except (ValueError, TypeError, AttributeError) as e:
+        logger.warning(f"使用 passlib 验证密码失败，尝试直接使用 bcrypt: {e}")
+        # 如果 passlib 失败，直接使用 bcrypt
+        try:
+            password_bytes = normalized.encode('utf-8')
+            hash_bytes = hashed_password.encode('utf-8')
+            return bcrypt.checkpw(password_bytes, hash_bytes)
+        except Exception as bcrypt_error:
+            logger.error(f"bcrypt 验证也失败: {bcrypt_error}")
+            return False
 
 
 def ensure_default_admin() -> None:

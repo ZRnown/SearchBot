@@ -4,8 +4,8 @@ const getBaseUrl = () => {
   if (process.env.ADMIN_API_BASE_URL) {
     return process.env.ADMIN_API_BASE_URL
   }
-  // 默认使用 localhost
-  const port = process.env.WEB_PORT ?? "8000"
+  // 默认使用 localhost，端口从环境变量获取，默认8080
+  const port = process.env.WEB_PORT ?? "8080"
   return `http://127.0.0.1:${port}`
 }
 

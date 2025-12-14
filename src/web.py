@@ -229,12 +229,13 @@ admin_bot = Bot(
     default=DefaultBotProperties(parse_mode="HTML"),
 )
 _bot_username: Optional[str] = None
-# 配置 passlib 使用 bcrypt，并设置兼容性选项
+# 配置 passlib 使用 bcrypt
+# 注意：bcrypt 4.x 版本与 passlib 1.7.4 有兼容性问题，我们使用直接调用 bcrypt 作为回退
 try:
-    pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto", bcrypt__rounds=12)
-except Exception:
-    # 如果初始化失败，使用默认配置
     pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+except Exception as e:
+    logger.warning(f"初始化 passlib 失败: {e}")
+    pwd_context = None  # 如果初始化失败，将直接使用 bcrypt
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 ALGORITHM = "HS256"
 
@@ -275,14 +276,21 @@ def _normalize_password(password: str) -> str:
 def hash_password(password: str) -> str:
     """哈希密码"""
     normalized = _normalize_password(password)
+    # 优先使用 bcrypt 直接调用，避免 passlib 的兼容性问题
     try:
-        return pwd_context.hash(normalized)
-    except Exception as e:
-        logger.error(f"密码哈希错误: {e}")
-        # 如果 passlib 失败，直接使用 bcrypt
         password_bytes = normalized.encode('utf-8')
         hashed = bcrypt.hashpw(password_bytes, bcrypt.gensalt())
         return hashed.decode('utf-8')
+    except Exception as e:
+        logger.error(f"bcrypt 哈希失败，尝试使用 passlib: {e}")
+        # 如果 bcrypt 失败，尝试使用 passlib
+        if pwd_context:
+            try:
+                return pwd_context.hash(normalized)
+            except Exception as passlib_error:
+                logger.error(f"passlib 哈希也失败: {passlib_error}")
+                raise
+        raise
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
@@ -290,18 +298,21 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     if not plain_password or not hashed_password:
         return False
     normalized = _normalize_password(plain_password)
+    # 优先使用 bcrypt 直接调用，避免 passlib 的兼容性问题
     try:
-        return pwd_context.verify(normalized, hashed_password)
-    except (ValueError, TypeError, AttributeError) as e:
-        logger.warning(f"使用 passlib 验证密码失败，尝试直接使用 bcrypt: {e}")
-        # 如果 passlib 失败，直接使用 bcrypt
-        try:
-            password_bytes = normalized.encode('utf-8')
-            hash_bytes = hashed_password.encode('utf-8')
-            return bcrypt.checkpw(password_bytes, hash_bytes)
-        except Exception as bcrypt_error:
-            logger.error(f"bcrypt 验证也失败: {bcrypt_error}")
-            return False
+        password_bytes = normalized.encode('utf-8')
+        hash_bytes = hashed_password.encode('utf-8')
+        return bcrypt.checkpw(password_bytes, hash_bytes)
+    except Exception as e:
+        logger.warning(f"bcrypt 验证失败，尝试使用 passlib: {e}")
+        # 如果 bcrypt 失败，尝试使用 passlib
+        if pwd_context:
+            try:
+                return pwd_context.verify(normalized, hashed_password)
+            except Exception as passlib_error:
+                logger.error(f"passlib 验证也失败: {passlib_error}")
+                return False
+        return False
 
 
 def ensure_default_admin() -> None:
@@ -927,21 +938,21 @@ async def upload_comic(
                 # 第一张图片添加caption（包含超链接），其他图片不添加caption
                 media_group = []
                 for idx, file_id in enumerate(preview_file_ids):
-                    if idx == 0:
-                        caption = f'📖 <a href="{deep_link}">{title}</a>'
+                if idx == 0:
+                    caption = f'📖 <a href="{deep_link}">{title}</a>'
                         media_group.append(
                             InputMediaPhoto(
                                 media=file_id,
-                                caption=caption,
-                                parse_mode="HTML",
+                        caption=caption,
+                        parse_mode="HTML",
                             )
-                        )
-                    else:
+                    )
+                else:
                         media_group.append(InputMediaPhoto(media=file_id))
                 messages = await admin_bot.send_media_group(
-                    settings.channels.comic_preview_channel_id,
+                        settings.channels.comic_preview_channel_id,
                     media=media_group,
-                )
+                    )
                 preview_messages.extend(messages)
             except Exception as e:
                 logger.error(f"发送预览图片失败: {e}")

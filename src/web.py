@@ -938,21 +938,21 @@ async def upload_comic(
                 # 第一张图片添加caption（包含超链接），其他图片不添加caption
                 media_group = []
                 for idx, file_id in enumerate(preview_file_ids):
-                if idx == 0:
-                    caption = f'📖 <a href="{deep_link}">{title}</a>'
+                    if idx == 0:
+                        caption = f'📖 <a href="{deep_link}">{title}</a>'
                         media_group.append(
                             InputMediaPhoto(
                                 media=file_id,
-                        caption=caption,
-                        parse_mode="HTML",
+                                caption=caption,
+                                parse_mode="HTML",
                             )
-                    )
-                else:
+                        )
+                    else:
                         media_group.append(InputMediaPhoto(media=file_id))
                 messages = await admin_bot.send_media_group(
-                        settings.channels.comic_preview_channel_id,
+                    settings.channels.comic_preview_channel_id,
                     media=media_group,
-                    )
+                )
                 preview_messages.extend(messages)
             except Exception as e:
                 logger.error(f"发送预览图片失败: {e}")

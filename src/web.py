@@ -947,12 +947,12 @@ async def upload_comic(
                                 parse_mode="HTML",
                             )
                         )
-                    else:
+                else:
                         media_group.append(InputMediaPhoto(media=file_id))
                 messages = await admin_bot.send_media_group(
-                    settings.channels.comic_preview_channel_id,
+                        settings.channels.comic_preview_channel_id,
                     media=media_group,
-                )
+                    )
                 preview_messages.extend(messages)
             except Exception as e:
                 logger.error(f"发送预览图片失败: {e}")
@@ -1018,74 +1018,69 @@ def extract_images_from_archive(archive_path: Path, archive_type: str) -> tuple[
                             image_count += 1
                 logger.info(f"ZIP 文件解压完成：成功提取 {image_count} 张图片")
         elif archive_type == 'rar':
-            # 优先使用系统命令解压 RAR 文件，更可靠
             import subprocess
-            import shutil as shutil_module
-            
-            # 尝试使用 unar 或 unrar 命令（跨平台支持）
-            unar_cmd = None
-            # 在 Linux 上，优先尝试 unrar，然后是 unar
-            # 在 macOS 上，优先尝试 unar，然后是 unrar
+            import shutil as _shutil
             import platform
+
             system = platform.system().lower()
-            if system == 'linux':
-                cmd_order = ['unrar', 'unar']
-            else:  # macOS, Windows 等
-                cmd_order = ['unar', 'unrar']
-            
+            cmd_order = ['unrar', 'unar'] if system == 'linux' else ['unar', 'unrar']
+            cmd_candidates = []
             for cmd in cmd_order:
+                cmd_path = _shutil.which(cmd)
+                if cmd_path:
+                    cmd_candidates.append((cmd, cmd_path))
+
+            unar_cmd = None
+            for cmd, cmd_path in cmd_candidates:
                 try:
-                    result = subprocess.run(
-                        [cmd, '--version'] if cmd == 'unar' else [cmd],
+                    subprocess.run(
+                        [cmd_path, '--version'] if cmd == 'unar' else [cmd_path],
                         capture_output=True,
                         timeout=5,
-                        text=True
+                        text=True,
+                        check=False,
                     )
-                    unar_cmd = cmd
-                    logger.info(f"找到解压工具: {cmd} (系统: {system})")
+                    unar_cmd = cmd_path
+                    logger.info(f"找到解压工具: {cmd_path} (系统: {system})")
                     break
                 except (FileNotFoundError, subprocess.TimeoutExpired):
                     continue
-            
+
             if unar_cmd:
-                # 使用系统命令解压
                 try:
                     logger.info(f"使用 {unar_cmd} 解压 RAR 文件: {archive_path}")
-                    if unar_cmd == 'unar':
-                        # unar 命令格式: unar -o output_dir file.rar
-                        result = subprocess.run(
+                    if Path(unar_cmd).name == 'unar':
+                        subprocess.run(
                             [unar_cmd, '-o', extracted_dir, str(archive_path)],
                             capture_output=True,
-                            timeout=300,  # 5分钟超时
+                            timeout=300,
                             text=True,
                             check=True
                         )
                     else:  # unrar
-                        # unrar 命令格式: unrar x file.rar output_dir/
-                        result = subprocess.run(
+                        subprocess.run(
                             [unar_cmd, 'x', '-y', str(archive_path), f'{extracted_dir}/'],
                             capture_output=True,
                             timeout=300,
                             text=True,
                             check=True
                         )
-                    
+
                     logger.info(f"{unar_cmd} 解压成功")
-                    
-                    # 扫描解压后的文件
+
                     for root, dirs, files in os.walk(extracted_dir):
                         for file in files:
                             file_path = Path(root) / file
                             if file_path.suffix.lower() in image_extensions:
                                 if file_path.exists() and file_path.is_file() and file_path.stat().st_size > 0:
                                     images.append(file_path)
-                    
+
                     image_count = len(images)
                     logger.info(f"RAR 文件解压完成：成功提取 {image_count} 张图片")
-                    
+
                     if image_count == 0:
                         raise ValueError("RAR 文件中未找到图片文件")
-                        
+
                 except subprocess.CalledProcessError as e:
                     error_msg = e.stderr if e.stderr else e.stdout if e.stdout else str(e)
                     logger.error(f"{unar_cmd} 解压失败: {error_msg}")
@@ -1096,25 +1091,27 @@ def extract_images_from_archive(archive_path: Path, archive_type: str) -> tuple[
                     logger.error(f"解压 RAR 文件时出错: {e}")
                     raise ValueError(f"解压 RAR 文件失败: {str(e)}")
             elif RAR_SUPPORT:
-                # 回退到 rarfile 库（作为备用方案）
                 logger.warning("未找到系统解压工具，使用 rarfile 库（可能不稳定）")
                 try:
+                    unrar_path = _shutil.which('unrar') or _shutil.which('unar')
+                    if unrar_path:
+                        rarfile.UNRAR_TOOL = unrar_path
+                        logger.info(f"rarfile 使用解压工具: {unrar_path}")
                     with rarfile.RarFile(archive_path, 'r') as rar_ref:
                         try:
                             namelist = rar_ref.namelist()
                         except Exception as e:
-                            raise ValueError(f"无法读取 RAR 文件列表: {str(e)}。建议安装 unar 工具: brew install unar")
-                        
+                            raise ValueError(f"无法读取 RAR 文件列表: {str(e)}。请确保安装 unrar/unar，并在 PATH 中可用")
+
                         if not namelist:
                             raise ValueError("RAR 文件为空：无法读取文件列表")
-                        
+
                         logger.info(f"RAR 文件包含 {len(namelist)} 个文件")
                         image_count = 0
                         for member in namelist:
                             member_path = Path(member)
                             if member_path.suffix.lower() in image_extensions:
                                 try:
-                                    # 尝试使用 open 方法直接读取（更可靠）
                                     with rar_ref.open(member) as f:
                                         content = f.read()
                                         if content:
@@ -1128,14 +1125,14 @@ def extract_images_from_archive(archive_path: Path, archive_type: str) -> tuple[
                                 except Exception as e:
                                     logger.warning(f"解压文件 {member} 失败: {e}")
                                     continue
-                        
+
                         if image_count == 0:
-                            raise ValueError("RAR 文件中未找到图片文件或所有文件解压失败。建议安装 unar 工具: brew install unar")
+                            raise ValueError("RAR 文件中未找到图片文件或所有文件解压失败。请安装 unrar/unar 后再试")
                         logger.info(f"使用 rarfile 库解压完成：成功提取 {image_count} 张图片")
                 except Exception as e:
-                    raise ValueError(f"解压 RAR 文件失败: {str(e)}。建议安装 unar 工具: brew install unar")
+                    raise ValueError(f"解压 RAR 文件失败: {str(e)}。请确保系统已安装 unrar 或 unar，并在 PATH 中可用")
             else:
-                raise ValueError("无法解压 RAR 文件：未找到解压工具。请安装 unar: brew install unar 或 unrar 工具")
+                raise ValueError("无法解压 RAR 文件：未找到解压工具。请安装 unar 或 unrar")
         else:
             raise HTTPException(status_code=400, detail=f"不支持的压缩包格式: {archive_type}")
     except Exception as e:
@@ -1410,6 +1407,7 @@ async def batch_upload_comic_archives(
                 )
         
         results = []
+        last_error_reason = None
         processed_count = 0
         skipped_count = 0
         for archive in archives:
@@ -1548,6 +1546,7 @@ async def batch_upload_comic_archives(
                 except Exception as extract_error:
                     logger.error(f"解压失败 {archive.filename}: {extract_error}", exc_info=True)
                     skipped_count += 1
+                    last_error_reason = str(extract_error)
                     # 清理临时文件
                     if tmp_archive_path and tmp_archive_path.exists():
                         try:
@@ -1559,6 +1558,7 @@ async def batch_upload_comic_archives(
                 if not image_files:
                     logger.warning(f"跳过 {archive.filename}: 压缩包中未找到图片文件（解压后的文件列表为空）")
                     skipped_count += 1
+                    last_error_reason = "RAR/ZIP 中未找到图片文件"
                     # 清理临时文件
                     if tmp_archive_path and tmp_archive_path.exists():
                         try:
@@ -1625,6 +1625,7 @@ async def batch_upload_comic_archives(
                             retry_count += 1
                         except Exception as e:
                             logger.error(f"发送媒体组失败 (第 {retry_count + 1} 次尝试): {e}", exc_info=True)
+                            last_error_reason = f"发送到Telegram失败: {e}"
                             retry_count += 1
                             if retry_count < max_retries:
                                 # 等待后重试
@@ -1641,6 +1642,7 @@ async def batch_upload_comic_archives(
                     if not send_success:
                         logger.warning(f"跳过当前文件 {archive.filename}（发送图片失败），继续处理下一个")
                         skipped_count += 1
+                        last_error_reason = last_error_reason or "发送图片到Telegram失败"
                         # 清理临时文件
                         if tmp_archive_path and tmp_archive_path.exists():
                             try:
@@ -1658,6 +1660,7 @@ async def batch_upload_comic_archives(
                 if not stored_file_ids:
                     logger.error(f"跳过 {archive.filename}: 没有成功发送任何图片")
                     skipped_count += 1
+                    last_error_reason = last_error_reason or "未能发送任何图片文件"
                     # 清理临时文件
                     if tmp_archive_path and tmp_archive_path.exists():
                         try:
@@ -1754,6 +1757,7 @@ async def batch_upload_comic_archives(
                 import traceback
                 logger.error(f"详细错误堆栈: {traceback.format_exc()}")
                 skipped_count += 1
+                last_error_reason = str(e)
                 # 继续处理下一个，不中断批量上传
             finally:
                 # 清理临时文件
@@ -1769,10 +1773,11 @@ async def batch_upload_comic_archives(
                     pass
         
         if not results:
-            logger.error(f"批量上传：没有成功上传任何压缩包（处理: {processed_count}, 跳过: {skipped_count}, 成功: {len(results)}）")
+            logger.error(f"批量上传：没有成功上传任何压缩包（处理: {processed_count}, 跳过: {skipped_count}, 成功: {len(results)}），最后错误: {last_error_reason}")
+            error_suffix = f" 可能原因: {last_error_reason}" if last_error_reason else ""
             raise HTTPException(
                 status_code=400, 
-                detail=f"没有成功上传任何压缩包。处理了 {processed_count} 个文件，跳过了 {skipped_count} 个文件。请检查文件格式、大小和内容。"
+                detail=f"没有成功上传任何压缩包。处理了 {processed_count} 个文件，跳过了 {skipped_count} 个文件。请检查文件格式、大小和内容。{error_suffix}"
             )
         
         logger.info(f"批量上传完成: 成功 {len(results)} 个文件")

@@ -1563,35 +1563,78 @@ async def batch_upload_comic_archives(
                         buffer = BufferedInputFile(img_content, filename=img_path.name)
                         media_group.append(InputMediaPhoto(media=buffer))
                     
-                    try:
-                        # 使用媒体组批量发送
-                        messages = await admin_bot.send_media_group(
-                            settings.channels.storage_channel_id,
-                            media=media_group,
-                        )
-                        # 从返回的消息中提取 file_id 和 message_id
-                        for message in messages:
-                            if message.photo:
-                                stored_file_ids.append((message.photo[-1].file_id, message.message_id))
-                        logger.info(f"成功发送媒体组: {len(messages)} 张图片")
-                        # 每组之间稍作延迟，避免触发 Flood control
-                        if i + media_chunk_size < len(image_files):
-                            await asyncio.sleep(0.5)
-                    except TelegramRetryAfter as e:
-                        wait_time = e.retry_after + 1
-                        logger.warning(f"触发 Flood control，等待 {wait_time} 秒")
-                        await asyncio.sleep(wait_time)
-                        # 重试发送这一组
-                        messages = await admin_bot.send_media_group(
-                            settings.channels.storage_channel_id,
-                            media=media_group,
-                        )
-                        for message in messages:
-                            if message.photo:
-                                stored_file_ids.append((message.photo[-1].file_id, message.message_id))
-                    except Exception as e:
-                        logger.error(f"发送媒体组失败: {e}")
-                        raise HTTPException(status_code=500, detail=f"发送图片失败: {str(e)}")
+                    # 重试机制：最多重试3次
+                    retry_count = 0
+                    max_retries = 3
+                    send_success = False
+                    
+                    while retry_count < max_retries and not send_success:
+                        try:
+                            # 使用媒体组批量发送
+                            messages = await admin_bot.send_media_group(
+                                settings.channels.storage_channel_id,
+                                media=media_group,
+                            )
+                            # 从返回的消息中提取 file_id 和 message_id
+                            for message in messages:
+                                if message.photo:
+                                    stored_file_ids.append((message.photo[-1].file_id, message.message_id))
+                            logger.info(f"成功发送媒体组 {i//media_chunk_size + 1}/{(len(image_files) + media_chunk_size - 1)//media_chunk_size}: {len(messages)} 张图片")
+                            send_success = True
+                            # 每组之间稍作延迟，避免触发 Flood control
+                            if i + media_chunk_size < len(image_files):
+                                await asyncio.sleep(0.5)
+                        except TelegramRetryAfter as e:
+                            wait_time = e.retry_after + 1
+                            logger.warning(f"触发 Flood control (第 {retry_count + 1} 次尝试)，等待 {wait_time} 秒")
+                            await asyncio.sleep(wait_time)
+                            retry_count += 1
+                        except Exception as e:
+                            logger.error(f"发送媒体组失败 (第 {retry_count + 1} 次尝试): {e}", exc_info=True)
+                            retry_count += 1
+                            if retry_count < max_retries:
+                                # 等待后重试
+                                await asyncio.sleep(2)
+                            else:
+                                # 达到最大重试次数，标记为失败
+                                logger.error(f"发送媒体组失败，已达到最大重试次数 ({max_retries})，跳过当前文件")
+                                skipped_count += 1
+                                # 清理已发送的文件ID，避免数据不一致
+                                stored_file_ids = []
+                                break  # 跳出内层循环
+                    
+                    # 如果发送失败，跳过当前文件，继续处理下一个
+                    if not send_success:
+                        logger.warning(f"跳过当前文件 {archive.filename}，继续处理下一个")
+                        # 清理临时文件
+                        if tmp_archive_path and tmp_archive_path.exists():
+                            try:
+                                tmp_archive_path.unlink()
+                            except:
+                                pass
+                        if extracted_dir and Path(extracted_dir).exists():
+                            try:
+                                shutil.rmtree(extracted_dir)
+                            except:
+                                pass
+                        continue  # 继续处理下一个压缩包
+                
+                # 检查是否有成功发送的图片
+                if not stored_file_ids:
+                    logger.error(f"跳过 {archive.filename}: 没有成功发送任何图片")
+                    skipped_count += 1
+                    # 清理临时文件
+                    if tmp_archive_path and tmp_archive_path.exists():
+                        try:
+                            tmp_archive_path.unlink()
+                        except:
+                            pass
+                    if extracted_dir and Path(extracted_dir).exists():
+                        try:
+                            shutil.rmtree(extracted_dir)
+                        except:
+                            pass
+                    continue
                 
                 # 提取 file_id（如果是元组则取第一个元素）
                 cover_file_id = stored_file_ids[0][0] if isinstance(stored_file_ids[0], tuple) else stored_file_ids[0]

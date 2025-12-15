@@ -1543,10 +1543,33 @@ async def batch_upload_comic_archives(
             try:
                 # 解压并提取图片
                 logger.info(f"开始解压: {archive.filename}, 文件大小: {tmp_archive_path.stat().st_size} 字节")
-                image_files, extracted_dir = extract_images_from_archive(tmp_archive_path, archive_type)
+                try:
+                    image_files, extracted_dir = extract_images_from_archive(tmp_archive_path, archive_type)
+                except Exception as extract_error:
+                    logger.error(f"解压失败 {archive.filename}: {extract_error}", exc_info=True)
+                    skipped_count += 1
+                    # 清理临时文件
+                    if tmp_archive_path and tmp_archive_path.exists():
+                        try:
+                            tmp_archive_path.unlink()
+                        except:
+                            pass
+                    continue
+                
                 if not image_files:
                     logger.warning(f"跳过 {archive.filename}: 压缩包中未找到图片文件（解压后的文件列表为空）")
                     skipped_count += 1
+                    # 清理临时文件
+                    if tmp_archive_path and tmp_archive_path.exists():
+                        try:
+                            tmp_archive_path.unlink()
+                        except:
+                            pass
+                    if extracted_dir and Path(extracted_dir).exists():
+                        try:
+                            shutil.rmtree(extracted_dir)
+                        except:
+                            pass
                     continue
                 logger.info(f"解压成功: {archive.filename}, 找到 {len(image_files)} 张图片")
                 
@@ -1558,10 +1581,21 @@ async def batch_upload_comic_archives(
                     chunk = image_files[i:i + media_chunk_size]
                     media_group = []
                     for img_path in chunk:
-                        with open(img_path, 'rb') as f:
-                            img_content = f.read()
-                        buffer = BufferedInputFile(img_content, filename=img_path.name)
-                        media_group.append(InputMediaPhoto(media=buffer))
+                        try:
+                            with open(img_path, 'rb') as f:
+                                img_content = f.read()
+                            if not img_content:
+                                logger.warning(f"图片文件为空: {img_path}")
+                                continue
+                            buffer = BufferedInputFile(img_content, filename=img_path.name)
+                            media_group.append(InputMediaPhoto(media=buffer))
+                        except Exception as img_error:
+                            logger.error(f"读取图片文件失败 {img_path}: {img_error}", exc_info=True)
+                            # 继续处理其他图片，不中断
+                    
+                    if not media_group:
+                        logger.warning(f"媒体组为空（第 {i//media_chunk_size + 1} 组），跳过这一组")
+                        continue
                     
                     # 重试机制：最多重试3次
                     retry_count = 0
@@ -1598,14 +1632,15 @@ async def batch_upload_comic_archives(
                             else:
                                 # 达到最大重试次数，标记为失败
                                 logger.error(f"发送媒体组失败，已达到最大重试次数 ({max_retries})，跳过当前文件")
-                                skipped_count += 1
                                 # 清理已发送的文件ID，避免数据不一致
                                 stored_file_ids = []
+                                send_success = False
                                 break  # 跳出内层循环
                     
                     # 如果发送失败，跳过当前文件，继续处理下一个
                     if not send_success:
-                        logger.warning(f"跳过当前文件 {archive.filename}，继续处理下一个")
+                        logger.warning(f"跳过当前文件 {archive.filename}（发送图片失败），继续处理下一个")
+                        skipped_count += 1
                         # 清理临时文件
                         if tmp_archive_path and tmp_archive_path.exists():
                             try:
@@ -1704,16 +1739,21 @@ async def batch_upload_comic_archives(
                         )
                     
                     session.flush()
-                    logger.info(f"✅ 漫画创建成功: id={resource.id}, title={title}, deep_link={deep_link}")
+                    logger.info(f"✅ 漫画创建成功: id={resource.id}, title={title}, deep_link={deep_link}, 图片数={len(stored_file_ids)}")
                     # db_session() 上下文管理器会在退出时自动提交
-                    results.append(ComicUploadResponse(
+                    result = ComicUploadResponse(
                         id=resource.id,
                         pages=len(stored_file_ids),
                         deep_link=deep_link,
                         preview_link=resource.preview_url,
-                    ))
+                    )
+                    results.append(result)
+                    logger.info(f"✅ 已添加到结果列表: {archive.filename}, 当前成功数={len(results)}")
             except Exception as e:
                 logger.error(f"处理压缩包 {archive.filename} 失败: {e}", exc_info=True)
+                import traceback
+                logger.error(f"详细错误堆栈: {traceback.format_exc()}")
+                skipped_count += 1
                 # 继续处理下一个，不中断批量上传
             finally:
                 # 清理临时文件

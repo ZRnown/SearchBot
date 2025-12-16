@@ -1030,9 +1030,13 @@ def extract_images_from_archive(archive_path: Path, archive_type: str) -> tuple[
                 if cmd_path:
                     cmd_candidates.append((cmd, cmd_path))
 
-            unar_cmd = None
+            # 尝试所有可用的解压工具，直到成功
+            extraction_success = False
+            last_error = None
+            
             for cmd, cmd_path in cmd_candidates:
                 try:
+                    # 验证工具是否可用
                     subprocess.run(
                         [cmd_path, '--version'] if cmd == 'unar' else [cmd_path],
                         capture_output=True,
@@ -1040,34 +1044,29 @@ def extract_images_from_archive(archive_path: Path, archive_type: str) -> tuple[
                         text=True,
                         check=False,
                     )
-                    unar_cmd = cmd_path
-                    logger.info(f"找到解压工具: {cmd_path} (系统: {system})")
-                    break
-                except (FileNotFoundError, subprocess.TimeoutExpired):
-                    continue
-
-            if unar_cmd:
-                try:
-                    logger.info(f"使用 {unar_cmd} 解压 RAR 文件: {archive_path}")
-                    if Path(unar_cmd).name == 'unar':
-                        subprocess.run(
-                            [unar_cmd, '-o', extracted_dir, str(archive_path)],
+                    logger.info(f"尝试使用解压工具: {cmd_path} (系统: {system})")
+                    
+                    # 尝试解压
+                    if Path(cmd_path).name == 'unar':
+                        result = subprocess.run(
+                            [cmd_path, '-o', extracted_dir, str(archive_path)],
                             capture_output=True,
                             timeout=300,
                             text=True,
                             check=True
                         )
                     else:  # unrar
-                        subprocess.run(
-                            [unar_cmd, 'x', '-y', str(archive_path), f'{extracted_dir}/'],
+                        result = subprocess.run(
+                            [cmd_path, 'x', '-y', str(archive_path), f'{extracted_dir}/'],
                             capture_output=True,
                             timeout=300,
                             text=True,
                             check=True
                         )
 
-                    logger.info(f"{unar_cmd} 解压成功")
+                    logger.info(f"{cmd_path} 解压成功")
 
+                    # 扫描解压后的文件
                     for root, dirs, files in os.walk(extracted_dir):
                         for file in files:
                             file_path = Path(root) / file
@@ -1079,19 +1078,51 @@ def extract_images_from_archive(archive_path: Path, archive_type: str) -> tuple[
                     logger.info(f"RAR 文件解压完成：成功提取 {image_count} 张图片")
 
                     if image_count == 0:
-                        raise ValueError("RAR 文件中未找到图片文件")
+                        # 清理并尝试下一个工具
+                        try:
+                            shutil.rmtree(extracted_dir)
+                            extracted_dir = tempfile.mkdtemp()
+                        except:
+                            pass
+                        last_error = f"{cmd_path} 解压成功但未找到图片文件"
+                        continue
+                    
+                    extraction_success = True
+                    break
 
                 except subprocess.CalledProcessError as e:
                     error_msg = e.stderr if e.stderr else e.stdout if e.stdout else str(e)
-                    logger.error(f"{unar_cmd} 解压失败: {error_msg}")
-                    raise ValueError(f"使用 {unar_cmd} 解压 RAR 文件失败: {error_msg}")
+                    logger.warning(f"{cmd_path} 解压失败: {error_msg}，尝试下一个工具...")
+                    last_error = f"{cmd_path}: {error_msg}"
+                    # 清理并尝试下一个工具
+                    try:
+                        shutil.rmtree(extracted_dir)
+                        extracted_dir = tempfile.mkdtemp()
+                    except:
+                        pass
+                    continue
                 except subprocess.TimeoutExpired:
-                    raise ValueError(f"解压 RAR 文件超时（超过 5 分钟）")
+                    logger.warning(f"{cmd_path} 解压超时，尝试下一个工具...")
+                    last_error = f"{cmd_path}: 解压超时（超过 5 分钟）"
+                    try:
+                        shutil.rmtree(extracted_dir)
+                        extracted_dir = tempfile.mkdtemp()
+                    except:
+                        pass
+                    continue
                 except Exception as e:
-                    logger.error(f"解压 RAR 文件时出错: {e}")
-                    raise ValueError(f"解压 RAR 文件失败: {str(e)}")
-            elif RAR_SUPPORT:
-                logger.warning("未找到系统解压工具，使用 rarfile 库（可能不稳定）")
+                    logger.warning(f"{cmd_path} 解压时出错: {e}，尝试下一个工具...")
+                    last_error = f"{cmd_path}: {str(e)}"
+                    try:
+                        shutil.rmtree(extracted_dir)
+                        extracted_dir = tempfile.mkdtemp()
+                    except:
+                        pass
+                    continue
+
+            # 如果所有系统工具都失败，尝试 rarfile 库
+            if not extraction_success and RAR_SUPPORT:
+                logger.warning("所有系统解压工具都失败，尝试使用 rarfile 库作为备用方案")
                 try:
                     unrar_path = _shutil.which('unrar') or _shutil.which('unar')
                     if unrar_path:
@@ -1101,10 +1132,16 @@ def extract_images_from_archive(archive_path: Path, archive_type: str) -> tuple[
                         try:
                             namelist = rar_ref.namelist()
                         except Exception as e:
-                            raise ValueError(f"无法读取 RAR 文件列表: {str(e)}。请确保安装 unrar/unar，并在 PATH 中可用")
+                            error_detail = f"无法读取 RAR 文件列表: {str(e)}"
+                            if last_error:
+                                error_detail += f"。之前尝试的错误: {last_error}"
+                            raise ValueError(error_detail)
 
                         if not namelist:
-                            raise ValueError("RAR 文件为空：无法读取文件列表")
+                            error_detail = "RAR 文件为空：无法读取文件列表"
+                            if last_error:
+                                error_detail += f"。之前尝试的错误: {last_error}"
+                            raise ValueError(error_detail)
 
                         logger.info(f"RAR 文件包含 {len(namelist)} 个文件")
                         image_count = 0
@@ -1127,12 +1164,26 @@ def extract_images_from_archive(archive_path: Path, archive_type: str) -> tuple[
                                     continue
 
                         if image_count == 0:
-                            raise ValueError("RAR 文件中未找到图片文件或所有文件解压失败。请安装 unrar/unar 后再试")
+                            error_detail = "RAR 文件中未找到图片文件或所有文件解压失败"
+                            if last_error:
+                                error_detail += f"。之前尝试的错误: {last_error}"
+                            raise ValueError(error_detail)
                         logger.info(f"使用 rarfile 库解压完成：成功提取 {image_count} 张图片")
+                        extraction_success = True
                 except Exception as e:
-                    raise ValueError(f"解压 RAR 文件失败: {str(e)}。请确保系统已安装 unrar 或 unar，并在 PATH 中可用")
-            else:
-                raise ValueError("无法解压 RAR 文件：未找到解压工具。请安装 unar 或 unrar")
+                    error_detail = f"rarfile 库解压失败: {str(e)}"
+                    if last_error:
+                        error_detail += f"。之前尝试的错误: {last_error}"
+                    raise ValueError(error_detail)
+            
+            # 如果所有方法都失败
+            if not extraction_success:
+                error_detail = "无法解压 RAR 文件：所有解压方法都失败"
+                if last_error:
+                    error_detail += f"。错误详情: {last_error}"
+                if not cmd_candidates:
+                    error_detail += "。未找到解压工具，请安装 unar 或 unrar"
+                raise ValueError(error_detail)
         else:
             raise HTTPException(status_code=400, detail=f"不支持的压缩包格式: {archive_type}")
     except Exception as e:
